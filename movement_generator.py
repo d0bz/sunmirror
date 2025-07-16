@@ -83,11 +83,119 @@ class MovementGenerator:
             for name in table_names:
                 if name in last_positions:
                     last_angle = last_positions[name]
-                    angle = last_angle + (center - last_angle) * ratio
+                    angle = math.floor(last_angle + (center - last_angle) * ratio)
                     frame[name] = angle
             path.append(frame)
         return path
 
+
+
+    @staticmethod
+    def generate_sequential_wave(inner_tables,middle_tables ,outer_tables, center=90, amplitude=45, step_size=4, wave_delay_ms=50, loops=1):
+        """Generate a sequential wave animation where inner parts move first, followed by middle parts,
+        and finally outer parts, with overlapping return movements.
+        
+        Args:
+            inner_tables: List of inner table names to generate path for
+            middle_tables: List of middle table names to generate path for
+            outer_tables: List of outer table names to generate path for
+            center: Center angle
+            amplitude: Movement amplitude (max deviation from center)
+            step_size: Size of each step in degrees
+            wave_delay_ms: Delay in ms between movements
+        
+        Returns:
+            List of frames: [{table_name: angle}, ...]
+        """
+
+        # Generate sine wave path for full cycle
+        steps = int(360 / step_size)  # full sine wave cycle
+        wave_path = [
+            math.floor(center + amplitude * math.sin(math.radians(i * step_size)))
+            for i in range(steps + 1)
+        ]
+        
+        frames = []
+        frame_delay = int(wave_delay_ms / (step_size * 10)) or 1
+        
+        # Calculate total frames for all loops
+        frames_per_loop = len(wave_path)
+        total_frames = (frames_per_loop * loops) + (2 * frame_delay)  # All loops plus delays
+        
+        # Store last positions before final phase
+        last_positions = {}
+        final_phase_start = (frames_per_loop * loops) - (frames_per_loop // 8)
+        
+        # Generate frames for all positions
+        for frame_idx in range(total_frames):
+            # Calculate current loop and position within loop
+            current_loop = frame_idx // frames_per_loop
+            loop_position = frame_idx % frames_per_loop
+            frame = {}
+            final_phase = frame_idx >= final_phase_start
+            
+            # Inner tables movement
+            for table in inner_tables:
+                if current_loop < loops and loop_position < len(wave_path):
+                    frame[table] = wave_path[loop_position]
+                else:
+                    frame[table] = center
+                
+            # Middle tables movement (starts when inner reaches max amplitude)
+            middle_start = len(wave_path) // 4  # Start at 90 degrees (max amplitude)
+            
+            for table in middle_tables:
+                wave_idx = frame_idx - middle_start
+                if frame_idx == final_phase_start - 1:
+                    # Store position just before final phase
+                    current_wave_idx = wave_idx % len(wave_path)
+                    if 0 <= current_wave_idx < len(wave_path):
+                        last_positions[table] = wave_path[current_wave_idx]
+                    else:
+                        last_positions[table] = center
+                        
+                if final_phase:
+                    # Linear interpolation to center
+                    steps_remaining = total_frames - frame_idx
+                    if steps_remaining > 0:
+                        start_pos = last_positions.get(table, center)
+                        progress = (frame_idx - final_phase_start) / (total_frames - final_phase_start)
+                        frame[table] = math.floor(start_pos + (center - start_pos) * progress)
+                elif 0 <= wave_idx < len(wave_path):
+                    frame[table] = wave_path[wave_idx]
+                else:
+                    frame[table] = center
+                    
+            # Outer tables movement (starts when middle reaches max amplitude)
+            outer_start = middle_start + (len(wave_path) // 4)  # Start when middle reaches max
+            for table in outer_tables:
+                wave_idx = frame_idx - outer_start
+                if frame_idx == final_phase_start - 1:
+                    # Store position just before final phase
+                    current_wave_idx = wave_idx % len(wave_path)
+                    if 0 <= current_wave_idx < len(wave_path):
+                        last_positions[table] = wave_path[current_wave_idx]
+                    else:
+                        last_positions[table] = center
+                        
+                if final_phase:
+                    # Use same interpolation as middle tables
+                    steps_remaining = total_frames - frame_idx
+                    if steps_remaining > 0:
+                        start_pos = last_positions.get(table, center)
+                        progress = (frame_idx - final_phase_start) / (total_frames - final_phase_start)
+                        frame[table] = math.floor(start_pos + (center - start_pos) * progress)
+                elif 0 <= wave_idx < len(wave_path):
+                    frame[table] = wave_path[wave_idx]
+                else:
+                    frame[table] = center
+                    
+            frames.append(frame)
+            
+        # Ensure all tables return to center
+        frames.append({name: center for name in inner_tables+middle_tables+outer_tables})
+        return frames
+        
     @staticmethod
     def generate_sync_inout_path(table_names, center=90, amplitude=45, step_size=1.0, loops=1):
         """Generate a synchronized in-out movement path for multiple tables.

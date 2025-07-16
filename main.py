@@ -64,7 +64,7 @@ SERVO_TO_POSITION = {
 # Mapping from physical servo number (1-54) to logical channel (1-54)
 CHANNEL_TO_SERVO = {
     1: 18,   2: 54,   3: 53,   4: 20,   5: 19,   6: 17,   7: 13,   8: 16,   9: 15,  10: 37,
-    11: 44,  12: 40,  13: 41,  14: 42,  15: 43,  17: 28,  18: 25,  19: 24,  20: 26,  21: 27,
+    11: 44,  12: 40,  13: 41,  14: 42,  15: 43,  16: 8,  17: 28,  18: 25,  19: 24,  20: 26,  21: 27,
     22: 12,  23: 10,  24: 11,  25: 14,  26: 5,   27: 6,   28: 1,   29: 4,   30: 50,  31: 52,
     32: 49,  33: 47,  34: 38,  35: 39,  36: 45,  37: 48,  38: 46,  39: 51,  40: 36,  41: 32,
     42: 30,  43: 31,  44: 23,  45: 21,  46: 35,  47: 22,  48: 29,  49: 34,  50: 3,   51: 8,
@@ -80,7 +80,7 @@ MIDDLE_RING_COUNT = 18
 OUTER_RING_COUNT = 30
 
 def setup_mirrors(controller):
-    SPEED_MS = 11
+    SPEED_MS = 30
     
     # Initialize ring lists
     inner_ring = []
@@ -205,15 +205,43 @@ if __name__ == "__main__":
                 )
                 #print(sync_path)
                 controller.play_frame_path(sync_path)
-            elif cmd == 'playone':
+            elif cmd == 'seqwave':
+                print("Playing synchronized inout path...")
+                # Generate and play a simple in-out movement for all mirrors
+                sync_path = MovementGenerator.generate_sequential_wave(
+                    inner_tables=inner_ring,
+                    middle_tables=middle_ring,
+                    outer_tables=outer_ring,
+                    center=center_angle,
+                    amplitude=45.0,
+                    step_size=1,
+                    wave_delay_ms=50,
+                    loops=4
+                )
+                #print(sync_path)
+                controller.play_frame_path(sync_path)
+            elif cmd == 'wavecustom':
+                print("Playing synchronized inout path for one...")
+                # Generate and play a simple in-out movement for all mirrors
+                sync_path = MovementGenerator.generate_wave_animation(
+                    ["inner1", "inner2", "inner3", "inner4", "inner5", "inner6"],
+                    center=center_angle,
+                    wave_delay_ms=500,
+                    amplitude=45.0,
+                    step_size=1,
+                    loops=10
+                )
+                #print(wave_path)
+                controller.play_frame_path(sync_path)
+            elif cmd == 'playcustom':
                 print("Playing synchronized inout path for one...")
                 # Generate and play a simple in-out movement for all mirrors
                 sync_path = MovementGenerator.generate_sync_inout_path(
-                    ["middle10"],
+                    ["inner1", "inner2", "inner3", "inner4", "inner5", "inner6"],
                     center=center_angle,
-                    amplitude=45.0,  # Reduced amplitude for safety
+                    amplitude=45.0,
                     step_size=1,
-                    loops=1
+                    loops=10
                 )
                 #print(wave_path)
                 controller.play_frame_path(sync_path)
@@ -225,12 +253,12 @@ if __name__ == "__main__":
                         table_num = int(parts[0])
                         angle = float(parts[1])
                         
-                        if 1 <= table_num <= len(all_mirrors):
-                            table_name = all_mirrors[table_num - 1]
+                        if 0 <= table_num <= len(all_mirrors):
+                            table_name = all_mirrors[table_num-1]
                             print(f"Moving {table_name} to {angle} degrees...")
                             controller.move_table(table_name, angle)
                         else:
-                            print(f"Error: Table number must be between 1 and {len(all_mirrors)}")
+                            print(f"Error: Table number must be between 0 and {len(all_mirrors)}")
                     else:
                         print("Error: Invalid command format. Use '<table_number> <angle>' or 'play' or 'list'")
                 except ValueError:
