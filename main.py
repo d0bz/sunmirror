@@ -79,6 +79,9 @@ INNER_RING_COUNT = 6
 MIDDLE_RING_COUNT = 18
 OUTER_RING_COUNT = 30
 
+# List of servos that need inverted movement
+INVERTED_SERVOS = [8, 11, 14, 17, 20, 23, 26, 28, 31, 33, 36, 38, 41, 43, 46, 48, 50, 53]
+
 def setup_mirrors(controller):
     SPEED_MS = 30
     
@@ -100,12 +103,30 @@ def setup_mirrors(controller):
             name = f"outer{logical_channel - (INNER_RING_COUNT + MIDDLE_RING_COUNT)}"
             outer_ring.append(name)
             
+        # Check if this servo should be inverted
+        inverted = logical_channel in INVERTED_SERVOS
+            
         # Add the table with the mapped channel number (0-based)
         print(name, logical_channel, servo_num-1)
 
-        controller.add_table(name, channel=servo_num-1, speed_ms=SPEED_MS)
+        controller.add_table(name, channel=servo_num-1, speed_ms=SPEED_MS, inverted=inverted)
     
     return inner_ring, middle_ring, outer_ring
+
+def move_outer_ring(controller, angle):
+    """Move all servos in the outer ring to a specific angle."""
+    outer_servos = [f"outer{i}" for i in range(1, OUTER_RING_COUNT + 1)]
+    controller.move_servos_to_angle(outer_servos, angle)
+
+def move_middle_ring(controller, angle):
+    """Move all servos in the middle ring to a specific angle."""
+    middle_servos = [f"middle{i}" for i in range(1, MIDDLE_RING_COUNT + 1)]
+    controller.move_servos_to_angle(middle_servos, angle)
+
+def move_inner_ring(controller, angle):
+    """Move all servos in the inner ring to a specific angle."""
+    inner_servos = [f"inner{i}" for i in range(1, INNER_RING_COUNT + 1)]
+    controller.move_servos_to_angle(inner_servos, angle)
 
 if __name__ == "__main__":
     debug = True  # Set to True to enable debug prints
@@ -244,6 +265,42 @@ if __name__ == "__main__":
                     loops=10
                 )
                 #print(wave_path)
+                controller.play_frame_path(sync_path)
+            elif cmd == 'all out':
+                print("Moving all rings outward")
+                # Generate and play synchronized movement for all mirrors
+                sync_path = MovementGenerator.move_all_rings_to_angle(
+                    inner_ring,
+                    middle_ring,
+                    outer_ring,
+                    center_angle + 45.0,
+                    center=center_angle,
+                    step_size=1  # 1 degree per step for smooth movement
+                )
+                controller.play_frame_path(sync_path)
+
+                time.sleep(1)
+                
+                sync_path = MovementGenerator.move_all_rings_to_angle(
+                    outer_ring, 
+                    middle_ring,
+                    inner_ring,
+                    center_angle - 45.0,
+                    center=center_angle + 45.0,  # Start from previous position
+                    step_size=1  # 1 degree per step for smooth movement
+                )
+                controller.play_frame_path(sync_path)
+
+                time.sleep(1)
+
+                sync_path = MovementGenerator.move_all_rings_to_angle(
+                    inner_ring,
+                    middle_ring,
+                    outer_ring,
+                    center_angle,
+                    center=center_angle - 45.0,  # Start from previous position
+                    step_size=1  # 1 degree per step for smooth movement
+                )
                 controller.play_frame_path(sync_path)
             else:
                 # Try to parse as table movement command

@@ -28,7 +28,7 @@ class TestMovementGenerator(unittest.TestCase):
             loops=2
         )
         
-        print(frames)
+        #print(frames)
 
         # Test that we got some frames
         self.assertTrue(len(frames) > 0)
@@ -158,6 +158,59 @@ class TestMovementGenerator(unittest.TestCase):
                                     f"Outer table should move in opposite direction to middle at frame {m}"
                                 )
                                 break
+
+    def test_move_all_rings_to_angle(self):
+        # Test setup
+        first_ring = ['first1', 'first2']
+        second_ring = ['second1', 'second2']
+        third_ring = ['third1', 'third2']
+        center = 90
+        target_angle = 135  # 45 degrees from center
+        step_size = 5  # 5 degrees per step for testing
+
+        frames = MovementGenerator.move_all_rings_to_angle(
+            first_ring=first_ring,
+            second_ring=second_ring,
+            third_ring=third_ring,
+            target_angle=target_angle,
+            step_size=step_size,
+            center=center
+        )
+
+        print(frames)
+
+        # Test that we got the expected number of frames
+        total_movement = abs(target_angle - center)
+        expected_steps = int(total_movement / step_size)
+        expected_frames = (expected_steps + 1) * 3  # +1 for final position, *3 for three rings
+        self.assertEqual(len(frames), expected_frames, "Incorrect number of frames generated")
+
+        # Test first sequence (first ring moving)
+        first_sequence = frames[:expected_steps + 1]
+        for frame in first_sequence:
+            # Only first ring should be moving
+            self.assertTrue(all(name in frame for name in first_ring), "First ring missing from frame")
+            self.assertFalse(any(name in frame for name in second_ring), "Second ring present too early")
+            self.assertFalse(any(name in frame for name in third_ring), "Third ring present too early")
+
+        # Test second sequence (second ring moving)
+        second_sequence = frames[expected_steps + 1:2*(expected_steps + 1)]
+        for frame in second_sequence:
+            # First ring should be at target, second ring moving
+            self.assertTrue(all(name in frame for name in second_ring), "Second ring missing from frame")
+            self.assertFalse(any(name in frame for name in third_ring), "Third ring present too early")
+
+        # Test third sequence (third ring moving)
+        third_sequence = frames[2*(expected_steps + 1):]
+        for frame in third_sequence:
+            # First and second rings at target, third ring moving
+            self.assertTrue(all(name in frame for name in third_ring), "Third ring missing from frame")
+
+        # Test angle bounds and step size
+        for frame in frames:
+            for angle in frame.values():
+                self.assertGreaterEqual(angle, min(center, target_angle), "Angle below minimum")
+                self.assertLessEqual(angle, max(center, target_angle), "Angle above maximum")
 
 if __name__ == '__main__':
     unittest.main()

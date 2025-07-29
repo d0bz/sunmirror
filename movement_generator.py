@@ -88,6 +88,65 @@ class MovementGenerator:
             path.append(frame)
         return path
 
+    @staticmethod
+    def move_all_rings_to_angle(first_ring, second_ring, third_ring, target_angle, step_size=1, center=90):
+        """
+        Generate frames to move rings to a specific angle in sequence: outer, then middle, then inner.
+        
+        Args:
+            first_ring: List of first ring servo names
+            second_ring: List of second ring servo names
+            third_ring: List of third ring servo names
+            target_angle: Target angle to move all servos to
+            step_size: Size of each step in degrees (smaller = smoother)
+            center: Center angle to interpolate from
+            
+        Returns:
+            List of frames where each frame is a dict mapping servo names to angles
+        """
+        frames = []
+        total_movement = abs(target_angle - center)
+        steps = int(total_movement / step_size)
+        
+        # Move first ring first
+        for i in range(steps + 1):
+            frame = {}
+            ratio = i / steps if steps > 0 else 1
+            # Use sine interpolation for smoother acceleration/deceleration
+            smooth_ratio = (1 - math.cos(ratio * math.pi)) / 2
+            angle = center + (target_angle - center) * smooth_ratio
+            
+            for name in first_ring:
+                frame[name] = angle
+            frames.append(frame)
+            
+        # Then move second ring
+        for i in range(steps + 1):
+            frame = {}                
+            # Move second ring with smooth interpolation
+            ratio = i / steps if steps > 0 else 1
+            smooth_ratio = (1 - math.cos(ratio * math.pi)) / 2
+            angle = center + (target_angle - center) * smooth_ratio
+            
+            for name in second_ring:
+                frame[name] = angle
+            frames.append(frame)
+            
+        # Finally move third ring
+        for i in range(steps + 1):
+            frame = {}
+                
+            # Move third ring with smooth interpolation
+            ratio = i / steps if steps > 0 else 1
+            smooth_ratio = (1 - math.cos(ratio * math.pi)) / 2
+            angle = center + (target_angle - center) * smooth_ratio
+            
+            for name in third_ring:
+                frame[name] = angle
+            frames.append(frame)
+            
+        return frames
+
 
 
     @staticmethod

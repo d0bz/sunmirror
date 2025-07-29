@@ -35,7 +35,7 @@ class SimulatedKit:
         self.servo = [SimulatedServo(channel=i, debug=debug) for i in range(channels)]
 
 class ServoTable:
-    def __init__(self, channel, kit, kit_index=0,board_channel=0, center_angle=90, radius=70, speed_ms=10, debug=False):
+    def __init__(self, channel, kit, kit_index=0, board_channel=0, center_angle=90, radius=70, speed_ms=10, inverted=False, debug=False):
         self.channel = channel
         self.board_channel = board_channel
         self.kit = kit
@@ -48,6 +48,7 @@ class ServoTable:
         self.total_movement_time = 0  # For measuring performance
         self.movement_count = 0
         self._stop = False  # Simple flag for stopping path following
+        self.inverted = inverted  # Whether servo movement should be inverted
     
     
     def _execute_move(self, target_angle, force_smooth=True):
@@ -82,6 +83,9 @@ class ServoTable:
             # Use sine interpolation for smoother acceleration/deceleration
             smooth_ratio = (1 - math.cos(ratio * math.pi)) / 2
             angle = start_angle + (target_angle - start_angle) * smooth_ratio
+            # Invert angle if needed
+            if self.inverted:
+                angle = 180 - angle
             # For real servos, just set the angle directly
             if isinstance(self.kit, ServoKit):
                 self.kit.servo[self.channel].angle = float(angle)
@@ -198,6 +202,17 @@ class MainController(MovementGenerator):
         """Send a path to a specific table."""
         if name in self.tables:
             self.tables[name].follow_path(path, delay)
+            
+    def move_servos_to_angle(self, servo_names, target_angle):
+        """Move multiple servos to a specific angle.
+        
+        Args:
+            servo_names: List of servo names to move (e.g. ['outer1', 'outer2', ...] or ['middle1', 'middle2', ...])
+            target_angle: Target angle to move all servos to
+        """
+        for name in servo_names:
+            if name in self.tables:
+                self.tables[name].move_to(target_angle)
             
     def cleanup(self):
         """Clean up and center all mirrors before shutdown"""
