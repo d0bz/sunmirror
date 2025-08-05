@@ -1,0 +1,64 @@
+/* Minimal Font Awesome CSS for the animation tool */
+.fas {
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  display: inline-block;
+  font-style: normal;
+  font-variant: normal;
+  text-rendering: auto;
+  line-height: 1;
+  font-family: "Font Awesome 5 Free";
+  font-weight: 900;
+}
+
+/* Save icon */
+.fa-save:before {
+  content: "\f0c7";
+}
+
+/* Play circle icon */
+.fa-play-circle:before {
+  content: "\f144";
+}
+
+/* File import icon */
+.fa-file-import:before {
+  content: "\f56f";
+}
+
+/* Plus icon */
+.fa-plus:before {
+  content: "\f067";
+}
+
+/* Trash icon */
+.fa-trash:before {
+  content: "\f1f8";
+}
+
+/* Play icon */
+.fa-play:before {
+  content: "\f04b";
+}
+
+/* Stop icon */
+.fa-stop:before {
+  content: "\f04d";
+}
+
+/* Unicode symbols as fallback */
+@font-face {
+  font-family: "Font Awesome 5 Free";
+  font-style: normal;
+  font-weight: 900;
+  src: local('Arial');
+}
+
+/* If Font Awesome font fails to load, use Unicode symbols as fallback */
+.fa-save:before { content: "💾"; }
+.fa-play-circle:before { content: "▶️"; }
+.fa-file-import:before { content: "📥"; }
+.fa-plus:before { content: "+"; }
+.fa-trash:before { content: "🗑️"; }
+.fa-play:before { content: "▶️"; }
+.fa-stop:before { content: "⏹️"; }

@@ -1,7 +1,11 @@
 # main.py
 import threading
+import argparse
+import json
+import sys
 from servo_controller import MainController
 from movement_generator import MovementGenerator
+import time
 
 # Mapping from servo number to ring position (1-based indexing)
 SERVO_TO_POSITION = {
@@ -64,10 +68,10 @@ SERVO_TO_POSITION = {
 # Mapping from physical servo number (1-54) to logical channel (1-54)
 CHANNEL_TO_SERVO = {
     1: 18,   2: 54,   3: 53,   4: 20,   5: 19,   6: 17,   7: 13,   8: 16,   9: 15,  10: 37,
-    11: 44,  12: 40,  13: 41,  14: 42,  15: 43,  16: 8,  17: 28,  18: 25,  19: 24,  20: 26,  21: 27,
+    11: 44,  12: 40,  13: 41,  14: 42,  15: 43,  16: 22,  17: 28,  18: 25,  19: 24,  20: 26,  21: 27,
     22: 12,  23: 10,  24: 11,  25: 14,  26: 5,   27: 6,   28: 1,   29: 4,   30: 50,  31: 52,
-    32: 49,  33: 47,  34: 38,  35: 39,  36: 45,  37: 48,  38: 46,  39: 51,  40: 36,  41: 32,
-    42: 30,  43: 31,  44: 23,  45: 21,  46: 35,  47: 22,  48: 29,  49: 34,  50: 3,   51: 8,
+    32: 49,  33: 47,  34: 38,  35: 39,  36: 46,  37: 48,  38: 45,  39: 51,  40: 36,  41: 32,
+    42: 30,  43: 31,  44: 23,  45: 21,  46: 35,  47: 33,  48: 29,  49: 34,  50: 3,   51: 8,
     52: 7,   53: 2,   54: 9
 }
 
@@ -80,7 +84,7 @@ MIDDLE_RING_COUNT = 18
 OUTER_RING_COUNT = 30
 
 # List of servos that need inverted movement
-INVERTED_SERVOS = [8, 11, 14, 17, 20, 23, 26, 28, 31, 33, 36, 38, 41, 43, 46, 48, 50, 53]
+INVERTED_SERVOS = [8, 11, 14, 17, 20, 23, 26, 28, 31, 33, 36, 38, 41, 43, 46, 48, 51, 53]
 
 def setup_mirrors(controller):
     SPEED_MS = 30
@@ -128,11 +132,79 @@ def move_inner_ring(controller, angle):
     inner_servos = [f"inner{i}" for i in range(1, INNER_RING_COUNT + 1)]
     controller.move_servos_to_angle(inner_servos, angle)
 
+def load_and_play_animation(file_path, controller, all_mirrors, step_size=1.0):
+    """
+    Load animation frames from a JSON file and play them.
+    
+    Args:
+        file_path: Path to the JSON file containing animation frames
+        controller: MainController instance to control the servos
+        all_mirrors: List of all mirror names
+        step_size: Size of each step in degrees (default: 1.0)
+    """
+    try:
+        with open(file_path, 'r') as f:
+            animation_data = json.load(f)
+        
+        print(f"Loaded animation data from {file_path}")
+        print(f"Found {len(animation_data)} frames")
+        
+        # Convert string table names to actual mirror names if needed
+        # The animation tool uses numbers as table names ("1", "2", etc.)
+        # but our system uses names like "inner1", "middle1", etc.
+        
+        # Check if we need to convert table names
+        first_frame = animation_data[0]
+        if 'angles' in first_frame:
+            table_keys = list(first_frame['angles'].keys())
+            if table_keys and table_keys[0].isdigit():
+                print("Converting numeric table names to mirror names...")
+                # We need to convert numeric table names to mirror names
+                for frame in animation_data:
+                    if 'angles' in frame:
+                        new_angles = {}
+                        for table_num, angle in frame['angles'].items():
+                            table_idx = int(table_num) - 1  # Convert to 0-based index
+                            if 0 <= table_idx < len(all_mirrors):
+                                new_angles[all_mirrors[table_idx]] = angle
+                        frame['angles'] = new_angles
+        
+        # Convert animation frames to a path with the specified step size
+        path = MovementGenerator.generate_path_from_animation_frames(animation_data, step_size)
+        print(f"Generated path with {len(path)} frames")
+        
+        # Play the path
+        print("Playing animation...")
+        controller.play_frame_path(path)
+        print("Animation playback complete")
+        
+        return True
+    except FileNotFoundError:
+        print(f"Error: File not found: {file_path}")
+    except json.JSONDecodeError:
+        print(f"Error: Invalid JSON format in file: {file_path}")
+    except Exception as e:
+        print(f"Error: {str(e)}")
+    
+    return False
+
 if __name__ == "__main__":
-    debug = True  # Set to True to enable debug prints
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="SUNMIRROR controller")
+    parser.add_argument("-f", "--file", help="Path to animation JSON file to play")
+    parser.add_argument("-s", "--step-size", type=float, default=1.0,
+                      help="Step size in degrees for animation interpolation (default: 1.0)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument("--simulation", action="store_true", help="Run in simulation mode without hardware")
+    
+    args = parser.parse_args()
+    
+    debug = args.debug  # Set to True to enable debug prints
+    simulation = args.simulation
+    
     print("Starting mirror simulation...")
     # Initialize controller with enough channels for all servos (54 mirrors * 1 channel each)
-    controller = MainController(simulation=False, debug=debug)
+    controller = MainController(simulation=simulation, debug=debug)
     print("Controller initialized, setting up mirrors...")
     
     # Setup all mirrors in their respective rings
@@ -142,6 +214,18 @@ if __name__ == "__main__":
     all_mirrors = inner_ring + middle_ring + outer_ring
     
     center_angle = 90.0  # Ensure it's a single float value
+    
+    # If a file is provided, load and play it, then exit
+    if args.file:
+        success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
+        if success:
+            # Center all mirrors before exiting
+            print("Centering all mirrors before exit...")
+            for mirror in all_mirrors:
+                controller.move_table(mirror, center_angle)
+            sys.exit(0)
+        else:
+            sys.exit(1)
     
     try:
         print("\nAvailable commands:")
@@ -210,7 +294,7 @@ if __name__ == "__main__":
                     center=center_angle,
                     amplitude=45.0,  # Reduced amplitude for safety
                     step_size=1,
-                    loops=1
+                    loops=10
                 )
                 #print(sync_path)
                 controller.play_frame_path(sync_path)
@@ -266,7 +350,7 @@ if __name__ == "__main__":
                 )
                 #print(wave_path)
                 controller.play_frame_path(sync_path)
-            elif cmd == 'all out':
+            elif cmd == 'ringbyring':
                 print("Moving all rings outward")
                 # Generate and play synchronized movement for all mirrors
                 sync_path = MovementGenerator.move_all_rings_to_angle(
@@ -279,29 +363,41 @@ if __name__ == "__main__":
                 )
                 controller.play_frame_path(sync_path)
 
-                time.sleep(1)
-                
-                sync_path = MovementGenerator.move_all_rings_to_angle(
-                    outer_ring, 
-                    middle_ring,
-                    inner_ring,
-                    center_angle - 45.0,
-                    center=center_angle + 45.0,  # Start from previous position
-                    step_size=1  # 1 degree per step for smooth movement
-                )
-                controller.play_frame_path(sync_path)
-
-                time.sleep(1)
+                time.sleep(5)
 
                 sync_path = MovementGenerator.move_all_rings_to_angle(
                     inner_ring,
                     middle_ring,
                     outer_ring,
                     center_angle,
-                    center=center_angle - 45.0,  # Start from previous position
+                    center=center_angle,
                     step_size=1  # 1 degree per step for smooth movement
                 )
                 controller.play_frame_path(sync_path)
+
+                time.sleep(1)
+                
+                #sync_path = MovementGenerator.move_all_rings_to_angle(
+                #    outer_ring,
+                #    middle_ring,
+                #    inner_ring,
+                #    center_angle - 45.0,
+                #    center=center_angle + 45.0,  # Start from previous position
+                #    step_size=1  # 1 degree per step for smooth movement
+                #)
+                #controller.play_frame_path(sync_path)
+
+                #time.sleep(1)
+
+                #sync_path = MovementGenerator.move_all_rings_to_angle(
+                #    inner_ring,
+                #    middle_ring,
+                #    outer_ring,
+                #    center_angle,
+                #    center=center_angle - 45.0,  # Start from previous position
+                #    step_size=1  # 1 degree per step for smooth movement
+                #)
+                #controller.play_frame_path(sync_path)
             else:
                 # Try to parse as table movement command
                 try:

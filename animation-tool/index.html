@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>SUNMIRROR</title>
-<style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SUNMIRROR</title>
+  <link rel="stylesheet" href="assets/fontawesome/fontawesome-minimal.css">
+  <style>
   body {
     font-family: system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
     margin: 0;
@@ -43,21 +45,22 @@
   }
   .panel {
     width: 100%;
-    max-width: 100%;
+    padding: 1rem;
     background: white;
     border-radius: 12px;
-    padding: 16px;
     box-shadow: 0 20px 40px -10px rgba(0,0,0,0.1);
     display: flex;
     flex-direction: column;
     gap: 12px;
     order: 1;
+    max-height: calc(100vh - 14rem);
+    overflow-y: auto;
   }
   
   @media (min-width: 769px) {
     .panel {
-      width: 260px;
-      max-width: 260px;
+      width: 300px;
+      max-width: 300px;
       order: 0;
     }
   }
@@ -122,19 +125,68 @@
     stroke: #222;
     stroke-width: 1;
     fill: transparent;
-    transition: fill .2s, stroke .2s;
+    transition: fill .2s, stroke .2s, fill-opacity .2s;
   }
-  polygon.triangle:hover {
-    stroke-width: 2;
+  
+  .angle-text {
+    font-size: 10px;
+    fill: #333;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    font-weight: bold;
+    pointer-events: none;
+  }
+  
+  /* Triangle fill colors based on angle */
+  polygon.triangle.angle-below-90 {
+    fill: #555;
+    fill-opacity: 0.3;
+  }
+  
+  polygon.triangle.angle-90 {
+    
+  }
+  
+  polygon.triangle.angle-above-90 {
+    fill: #bd2727;
+    fill-opacity: 0.3;
+  }
+  polygon.triangle:hover, polygon.triangle.hover-highlight {
+    stroke-width: 3;
+    stroke: #2563eb;
   }
   polygon.triangle.selected {
-    fill: rgba(250, 200, 25, 0.5);
+    /*fill: rgba(250, 200, 25, 0.5);*/
     stroke: #d68300;
+    stroke-width: 2px;
   }
   .controls {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+  }
+  
+  .save-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  
+  #save-filename {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    width: 130px;
+  }
+  
+  #play-on-mirrors {
+    background-color: #10b981;
+  }
+  
+  #play-on-mirrors:hover {
+    background-color: #059669;
   }
   button {
     background: #2563eb;
@@ -159,6 +211,11 @@
     background: #f3f4f6;
     color: #374151;
   }
+  
+  button.primary {
+    background: #4CAF50;
+    color: white;
+  }
   .selected-list {
     flex: 1;
     overflow: auto;
@@ -167,6 +224,159 @@
     border-radius: 6px;
     font-size: 0.85rem;
     line-height: 1.3;
+  }
+  
+  .triangle-item {
+    margin-bottom: 1px;
+    padding: 0px;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    cursor: pointer;
+    transition: background-color 0.2s, box-shadow 0.2s;
+  }
+  
+  .triangle-item:hover, .triangle-item.hover-highlight {
+    background: #f0f9ff;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+  }
+  
+  .triangle-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+  
+  .triangle-header span:nth-child(2) {
+    flex: 1;
+    margin-left: 5px;
+  }
+  
+  .triangle-header span:last-child {
+    margin-left: auto;
+  }
+  
+  /* Checkbox styles */
+  .checkbox-container {
+    display: inline-block;
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+    width: 18px;
+    height: 18px;
+  }
+  
+  .checkbox-container input {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+  }
+  
+  .checkmark {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 18px;
+    width: 18px;
+    background-color: #eee;
+    border-radius: 3px;
+    border: 1px solid #ccc;
+  }
+  
+  .checkbox-container:hover input ~ .checkmark {
+    background-color: #ddd;
+  }
+  
+  .checkbox-container input:checked ~ .checkmark {
+    background-color: #2563eb;
+    border-color: #2563eb;
+  }
+  
+  .checkmark:after {
+    content: "";
+    position: absolute;
+    display: none;
+  }
+  
+  .checkbox-container input:checked ~ .checkmark:after {
+    display: block;
+  }
+  
+  .checkbox-container .checkmark:after {
+    left: 6px;
+    top: 2px;
+    width: 4px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  
+  .triangle-angle-control {
+    padding: 0 2px;
+  }
+  
+  .group-checkbox-container {
+    display: flex;
+    align-items: center;
+    margin: 10px 0;
+    padding: 8px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    border-left: 3px solid #2563eb;
+  }
+  
+  .group-checkbox-container span {
+    margin-left: 8px;
+    font-weight: 500;
+  }
+  
+  .individual-angle-slider {
+    width: 100%;
+    margin: 5px 0;
+  }
+  
+  .angle-controls {
+    margin: 10px 0;
+    padding: 10px;
+    background: #f0f4f8;
+    border-radius: 6px;
+  }
+  
+  .angle-buttons-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0;
+    justify-content: space-between;
+  }
+  
+  .angle-btn {
+    flex: 1;
+    padding: 6px 0;
+    background-color: #f0f4f8;
+    color: #333;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
+  }
+  
+  .angle-btn:hover {
+    background-color: #e0e7ef;
+  }
+  
+  .angle-btn:active {
+    transform: scale(0.98);
+  }
+  
+  .angle-btn.active {
+    background-color: #2563eb;
+    color: white;
+    border-color: #1e40af;
   }
   
   /* Hide selected list on mobile */
@@ -304,17 +514,41 @@
 <body>
   <div id="app">
     <div class="panel">
-      <h1>Triangle Selection</h1>
       <div class="controls">
         <button id="select-all">Select All</button>
         <button id="clear" class="secondary">Clear</button>
+        <div class="save-container">
+          <input type="text" id="save-filename" placeholder="filename" value="triangle_frames">
+          <button id="play-on-mirrors" title="Play on mirrors"><i class="fas fa-play-circle"></i></button>
+          <button id="save" title="Save animation"><i class="fas fa-save"></i></button>
+          <button id="import" title="Import animation"><i class="fas fa-file-import"></i></button>
+          <input type="file" id="import-file" accept=".json" style="display: none;">
+        </div>
       </div>
-      <div class="triangle-info">Total triangles: <span id="total-count">0</span></div>
       <div class="triangle-info">Selected: <span id="selected-count">0</span></div>
       <div class="triangle-info">Current frame: <span id="current-frame">1</span></div>
-      <div class="selected-list" id="selected-list">
-        <!-- Selected indices will appear here -->
+      
+      <!-- Angle controls -->
+      <div class="angle-controls">
+        <label>Triangle angle:</label>
+        <div class="angle-buttons-group">
+          <button id="angle-40" class="angle-btn">40°</button>
+          <button id="angle-90" class="angle-btn">90°</button>
+          <button id="angle-140" class="angle-btn">140°</button>
+        </div>
+        <button id="reset-angles" hidden class="secondary">Reset to 90°</button>
       </div>
+      
+      <!-- Group checkbox for selecting/deselecting all triangles -->
+      <div class="group-checkbox-container">
+        <label class="checkbox-container">
+          <input type="checkbox" id="group-checkbox" checked>
+          <span class="checkmark" style="left: -5px;"></span>
+        </label>
+        <span>Select/deselect all triangles</span>
+      </div>
+      
+      <div class="selected-list" id="selected-list">None</div>
       <div class="footer">
         Click individual triangles to toggle. Selected ones are highlighted.
       </div>
@@ -329,9 +563,10 @@
     </div>
     <div id="timeline-container">
       <div class="timeline-controls">
-        <button id="add-frame">Add Frame</button>
-        <button id="play-animation">Play</button>
-        <button id="stop-animation" class="hidden">Stop</button>
+        <button id="add-frame" title="Add frame"><i class="fas fa-plus"></i> Frame</button>
+        <button id="delete-frame" title="Delete frame"><i class="fas fa-trash"></i> Frame</button>
+        <button id="play-animation" title="Play animation"><i class="fas fa-play"></i></button>
+        <button id="stop-animation" class="hidden" title="Stop animation"><i class="fas fa-stop"></i></button>
         <span class="timeline-info">
           <label for="animation-speed">Animation Speed:</label> 
           <select id="animation-speed">
@@ -426,23 +661,90 @@
   const group = document.getElementById("rotated-group");
   const totalCountEl = document.getElementById("total-count");
   const selectedCountEl = document.getElementById("selected-count");
+  const currentFrameEl = document.getElementById("current-frame");
   const selectedListEl = document.getElementById("selected-list");
+  const addFrameBtn = document.getElementById("add-frame");
+  const deleteFrameBtn = document.getElementById("delete-frame");
+  const framesContainer = document.getElementById("frames-container");
+  const playBtn = document.getElementById("play-animation");
+  const stopBtn = document.getElementById("stop-animation");
   const selectAllBtn = document.getElementById("select-all");
   const clearBtn = document.getElementById("clear");
-  const currentFrameEl = document.getElementById("current-frame");
-  const addFrameBtn = document.getElementById("add-frame");
-  const playAnimationBtn = document.getElementById("play-animation");
-  const stopAnimationBtn = document.getElementById("stop-animation");
+  const saveBtn = document.getElementById("save");
   const animationSpeedSelect = document.getElementById("animation-speed");
-  const framesContainer = document.getElementById("frames-container");
+  
+  // Angle control elements
+  const angleValue = document.getElementById("angle-value");
+  const resetAnglesBtn = document.getElementById("reset-angles");
   
   // Animation state
   let currentFrameIndex = 0;
   let isPlaying = false;
   let animationInterval = null;
+  
+  // Initialize the first frame
   const frames = [
-    { id: 0, selected: new Set() } // First frame
+    { id: 0, selected: new Set(), angles: {} } // First frame with angles map
   ];
+  
+  // Function to prepare frames data for JSON export
+  function prepareFramesForExport() {
+    return frames.map((frame, index) => {
+      // Create a complete angles object with default values for all triangles
+      const completeAngles = {};
+      
+      // Fill in all triangles with default or set angles
+      for (let i = 1; i <= triangles.length; i++) {
+        completeAngles[i] = frame.angles[i] || 90;
+      }
+      
+      return {
+        id: index + 1,
+        selected: Array.from(frame.selected),
+        angles: completeAngles
+      };
+    });
+  }
+  
+  // Function to update the selected count display
+  function updateSelectedCount() {
+    const currentFrame = frames[currentFrameIndex];
+    selectedCountEl.textContent = currentFrame.selected.size;
+  }
+  
+  // Function to update the frame display based on the current frame
+  function updateFrameDisplay() {
+    // Update current frame indicator
+    document.getElementById('current-frame').textContent = currentFrameIndex + 1;
+    
+    // Update frame selection in the UI
+    document.querySelectorAll('.frame').forEach((frame, index) => {
+      if (index === currentFrameIndex) {
+        frame.classList.add('active');
+      } else {
+        frame.classList.remove('active');
+      }
+    });
+    
+    // Update triangle selection based on the current frame
+    const currentFrame = frames[currentFrameIndex];
+    document.querySelectorAll('polygon.triangle').forEach(triangle => {
+      const index = triangle.getAttribute('data-index');
+      if (currentFrame.selected.has(index)) {
+        triangle.classList.add('selected');
+      } else {
+        triangle.classList.remove('selected');
+      }
+    });
+    
+    // Update the selected count
+    updateSelectedCount();
+  }
+  
+  // Default angle value
+  const DEFAULT_ANGLE = 90;
+  const MIN_ANGLE = 10;
+  const MAX_ANGLE = 170;
   
   // Initialize triangles
   // Add hexagon boundary for reference (optional)
@@ -454,15 +756,28 @@
   hexPath.setAttribute("stroke-dasharray","6,4");
   group.appendChild(hexPath);
 
-  triangles.forEach((tri, idx)=>{
+  // Create a function to render a triangle with an angle
+  function renderTriangle(trianglePoints, index, angle = DEFAULT_ANGLE) {
     const poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
-    const scaled = tri.map(p => [(p[0]*scale).toFixed(3), (p[1]*scale).toFixed(3)]);
+    
+    // Scale the triangle points
+    const scaled = trianglePoints.map(p => [(p[0]*scale).toFixed(3), (p[1]*scale).toFixed(3)]);
     poly.setAttribute("points", scaled.map(p=>p.join(",")).join(" "));
+    
+    // Set attributes
     poly.classList.add("triangle");
-    poly.setAttribute("data-index", idx+1); // 1-based
-    poly.setAttribute("aria-label", "Triangle " + (idx+1));
+    poly.setAttribute("data-index", index); // 1-based
+    poly.setAttribute("data-angle", angle); // Store angle as attribute
+    poly.setAttribute("aria-label", "Triangle " + index);
     poly.setAttribute("role","button");
-    // click handler
+    
+    // Calculate centroid (needed for potential future use)
+    const centroid = [
+      (parseFloat(scaled[0][0]) + parseFloat(scaled[1][0]) + parseFloat(scaled[2][0])) / 3,
+      (parseFloat(scaled[0][1]) + parseFloat(scaled[1][1]) + parseFloat(scaled[2][1])) / 3
+    ];
+    
+    // click handler for triangle
     poly.addEventListener("click", (e)=>{
       if (isPlaying) return; // Don't allow changes while playing
       
@@ -472,46 +787,233 @@
       if (currentFrame.selected.has(index)){
         currentFrame.selected.delete(index);
         poly.classList.remove("selected");
+        
+        // Reset angle to 90 degrees when removed from selection
+        currentFrame.angles[index] = DEFAULT_ANGLE;
+        updateAngleIndicator(index, DEFAULT_ANGLE);
       } else {
         currentFrame.selected.add(index);
         poly.classList.add("selected");
       }
+      
+      // Update angle input to show the angle of the last selected triangle
+      const angle = currentFrame.angles[index] || DEFAULT_ANGLE;
+      
       updateUI();
     });
+    
+    // Add hover events for triangle
+    poly.addEventListener("mouseenter", (e) => {
+      const index = poly.getAttribute("data-index");
+      const sidebarItem = document.querySelector(`.triangle-item .triangle-angle-btn[data-triangle-id="${index}"]`)?.closest('.triangle-item');
+      if (sidebarItem) {
+        sidebarItem.classList.add("hover-highlight");
+      }
+    });
+    
+    poly.addEventListener("mouseleave", (e) => {
+      const index = poly.getAttribute("data-index");
+      const sidebarItem = document.querySelector(`.triangle-item .triangle-angle-btn[data-triangle-id="${index}"]`)?.closest('.triangle-item');
+      if (sidebarItem) {
+        sidebarItem.classList.remove("hover-highlight");
+      }
+    });
+    
     group.appendChild(poly);
+    
+    return { polygon: poly };
+  }
+  
+  // Initialize triangles with default angles
+  const triangleElements = [];
+  triangles.forEach((tri, idx)=>{
+    const index = idx + 1; // 1-based index
+    const elements = renderTriangle(tri, index);
+    triangleElements.push(elements);
   });
+  
+  // We'll add hover functionality directly after UI updates instead of using event delegation
 
+  // Store checkbox states to preserve them during UI updates
+  const checkboxStates = {};
+  
   // Update UI to reflect current frame and selection
   function updateUI(){
-    totalCountEl.textContent = triangles.length;
     currentFrameEl.textContent = currentFrameIndex + 1;
     
     const currentFrame = frames[currentFrameIndex];
     selectedCountEl.textContent = currentFrame.selected.size;
     
+    // Save current checkbox states before updating UI
+    document.querySelectorAll('.triangle-checkbox').forEach(checkbox => {
+      const id = checkbox.getAttribute('data-triangle-id');
+      checkboxStates[id] = checkbox.checked;
+    });
+    
     const arr = Array.from(currentFrame.selected).sort((a,b)=>+a - +b);
     if (arr.length === 0){
       selectedListEl.textContent = "None";
     } else {
-      selectedListEl.innerHTML = arr.map(i => `<div>Triangle <strong>#${i}</strong></div>`).join("");
+      // Show triangle IDs and their angles with individual controls
+      selectedListEl.innerHTML = arr.map(i => {
+        const angle = currentFrame.angles[i] || DEFAULT_ANGLE;
+        // Use stored checkbox state or default to checked if not found
+        const isChecked = checkboxStates[i] !== undefined ? checkboxStates[i] : true;
+        return `
+          <div class="triangle-item" data-triangle-id="${i}">
+            <div class="triangle-header">
+              <label class="checkbox-container">
+                <input type="checkbox" class="triangle-checkbox" data-triangle-id="${i}" ${isChecked ? 'checked' : ''}>
+                <span class="checkmark"></span>
+              </label>
+              <span>Triangle <strong>#${i}</strong></span>
+              <span class="angle-value">${angle}°</span>
+            </div>
+            <div class="triangle-angle-control">
+              <div class="angle-buttons-group">
+                <button class="angle-btn triangle-angle-btn ${angle === 40 ? 'active' : ''}" data-angle="40" data-triangle-id="${i}">40°</button>
+                <button class="angle-btn triangle-angle-btn ${angle === 90 ? 'active' : ''}" data-angle="90" data-triangle-id="${i}">90°</button>
+                <button class="angle-btn triangle-angle-btn ${angle === 140 ? 'active' : ''}" data-angle="140" data-triangle-id="${i}">140°</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+      
+      // Add event listeners to individual angle buttons
+      document.querySelectorAll('.triangle-angle-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const triangleId = this.getAttribute('data-triangle-id');
+          const newAngle = parseInt(this.getAttribute('data-angle'));
+          
+          // Update angle in data structure
+          currentFrame.angles[triangleId] = newAngle;
+          
+          // Update angle indicator
+          updateAngleIndicator(triangleId, newAngle);
+          
+          // Update the displayed angle value
+          const angleDisplay = this.closest('.triangle-item').querySelector('.angle-value');
+          angleDisplay.textContent = `${newAngle}°`;
+          
+          // Update active button state
+          this.closest('.angle-buttons-group').querySelectorAll('.triangle-angle-btn').forEach(b => {
+            b.classList.remove('active');
+          });
+          this.classList.add('active');
+          
+          // Uncheck the checkbox when angle is changed individually
+          const checkbox = this.closest('.triangle-item').querySelector('.triangle-checkbox');
+          if (checkbox) {
+            checkbox.checked = false;
+          }
+        });
+      });
+      
+      // Add event listeners to checkboxes
+      document.querySelectorAll('.triangle-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+          // No additional action needed here, the checked state is used by global controls
+        });
+      });
+      
+      // Set up a MutationObserver to handle triangle item hover events
+      if (!window.triangleHoverObserver) {
+        window.triangleHoverObserver = new MutationObserver(function(mutations) {
+          document.querySelectorAll('.triangle-item').forEach(item => {
+            if (!item.hasHoverListeners) {
+              const triangleId = item.getAttribute('data-triangle-id');
+              
+              item.addEventListener('mouseenter', function() {
+                const svgTriangle = document.querySelector(`polygon.triangle[data-index="${triangleId}"]`);
+                if (svgTriangle) {
+                  svgTriangle.classList.add('hover-highlight');
+                }
+              });
+              
+              item.addEventListener('mouseleave', function() {
+                const svgTriangle = document.querySelector(`polygon.triangle[data-index="${triangleId}"]`);
+                if (svgTriangle) {
+                  svgTriangle.classList.remove('hover-highlight');
+                }
+              });
+              
+              item.hasHoverListeners = true;
+            }
+          });
+        });
+        
+        window.triangleHoverObserver.observe(selectedListEl, {
+          childList: true,
+          subtree: true
+        });
+      }
+      
+      // Immediately set up hover listeners for current items
+      document.querySelectorAll('.triangle-item').forEach(item => {
+        if (!item.hasHoverListeners) {
+          const triangleId = item.getAttribute('data-triangle-id');
+          
+          item.addEventListener('mouseenter', function() {
+            const svgTriangle = document.querySelector(`polygon.triangle[data-index="${triangleId}"]`);
+            if (svgTriangle) {
+              svgTriangle.classList.add('hover-highlight');
+            }
+          });
+          
+          item.addEventListener('mouseleave', function() {
+            const svgTriangle = document.querySelector(`polygon.triangle[data-index="${triangleId}"]`);
+            if (svgTriangle) {
+              svgTriangle.classList.remove('hover-highlight');
+            }
+          });
+          
+          item.hasHoverListeners = true;
+        }
+      });
     }
   }
   
-  // Update triangle visual selection state based on current frame
-  function updateTriangleSelections() {
-    const currentFrame = frames[currentFrameIndex];
+  // Function to update angle indicator for a triangle
+  function updateAngleIndicator(triangleId, angle) {
+    const poly = document.querySelector(`polygon.triangle[data-index="${triangleId}"]`);
+    if (!poly) return;
     
-    // Clear all visual selections
-    document.querySelectorAll("polygon.triangle.selected").forEach(p => {
+    // Update data-angle attribute
+    poly.setAttribute("data-angle", angle);
+    
+    // Update triangle fill color based on angle
+    poly.classList.remove("angle-below-90", "angle-90", "angle-above-90");
+    if (angle < 90) {
+      poly.classList.add("angle-below-90");
+    } else if (angle === 90) {
+      poly.classList.add("angle-90");
+    } else {
+      poly.classList.add("angle-above-90");
+    }
+  }
+
+  // Update triangle selection and angles based on current frame
+  function updateTriangleSelection(){
+    // Clear all selections first
+    document.querySelectorAll('polygon.triangle').forEach(p=>{
       p.classList.remove("selected");
     });
     
-    // Apply selections from current frame
+    // Apply current frame's selections and angles
+    const currentFrame = frames[currentFrameIndex];
+    
+    // First update all triangles to default angle if not specified in current frame
+    document.querySelectorAll('polygon.triangle').forEach(p => {
+      const index = p.getAttribute("data-index");
+      const angle = currentFrame.angles[index] || DEFAULT_ANGLE;
+      updateAngleIndicator(index, angle);
+    });
+    
+    // Then apply selections
     currentFrame.selected.forEach(index => {
       const poly = document.querySelector(`polygon.triangle[data-index="${index}"]`);
-      if (poly) {
-        poly.classList.add("selected");
-      }
+      if (poly) poly.classList.add("selected");
     });
   }
 
@@ -528,38 +1030,56 @@
     document.querySelector(`.frame[data-frame="${frameIndex}"]`).classList.add("active");
     
     // Update triangle selections
-    updateTriangleSelections();
+    updateTriangleSelection();
     
     // Update other UI elements
     updateUI();
   }
 
-  // Add a new frame
-  function addFrame() {
-    const newFrameId = frames.length;
-    const previousSelections = new Set(frames[currentFrameIndex].selected);
-    
-    // Create new frame with copy of current selection
-    frames.push({
-      id: newFrameId,
-      selected: previousSelections
-    });
-    
+  // Function to add a frame element to the UI
+  function addFrameElement(frameIndex) {
     // Create frame UI element
     const frameEl = document.createElement("div");
     frameEl.classList.add("frame");
-    frameEl.setAttribute("data-frame", newFrameId);
-    frameEl.innerHTML = `<div class="frame-number">${newFrameId + 1}</div>`;
+    frameEl.setAttribute("data-frame", frameIndex);
+    frameEl.innerHTML = `<div class="frame-number">${frameIndex + 1}</div>`;
     frameEl.addEventListener("click", () => {
       if (!isPlaying) {
-        switchToFrame(newFrameId);
+        switchToFrame(frameIndex);
       }
     });
     
     framesContainer.appendChild(frameEl);
+  }
+  
+  // Add a new frame after the currently selected frame
+  function addFrame() {
+    const insertPosition = currentFrameIndex + 1; // Insert after current frame
+    const previousSelections = new Set(frames[currentFrameIndex].selected);
     
-    // Switch to new frame
-    switchToFrame(newFrameId);
+    // Create new frame with copy of current selection
+    const newFrame = {
+      id: insertPosition,
+      selected: previousSelections,
+      angles: {}
+    };
+    
+    // Insert the new frame after the current frame
+    frames.splice(insertPosition, 0, newFrame);
+    
+    // Update IDs for all frames after the insertion point
+    for (let i = insertPosition + 1; i < frames.length; i++) {
+      frames[i].id = i;
+    }
+    
+    // Clear and rebuild all frame elements to ensure correct IDs and event handlers
+    framesContainer.innerHTML = '';
+    frames.forEach((frame, index) => {
+      addFrameElement(index);
+    });
+    
+    // Switch to the newly added frame
+    switchToFrame(insertPosition);
   }
 
   // Play animation
@@ -568,8 +1088,8 @@
     if (frames.length <= 1) return; // Need at least 2 frames to animate
     
     isPlaying = true;
-    playAnimationBtn.classList.add("hidden");
-    stopAnimationBtn.classList.remove("hidden");
+    document.getElementById("play-animation").classList.add("hidden");
+    document.getElementById("stop-animation").classList.remove("hidden");
     
     let animationFrameIndex = 0;
     const speed = parseInt(animationSpeedSelect.value, 10);
@@ -587,39 +1107,355 @@
     
     clearInterval(animationInterval);
     isPlaying = false;
-    playAnimationBtn.classList.remove("hidden");
-    stopAnimationBtn.classList.add("hidden");
+    document.getElementById("play-animation").classList.remove("hidden");
+    document.getElementById("stop-animation").classList.add("hidden");
   }
 
   // Button event listeners
+  saveBtn.addEventListener("click", () => {
+    // Prepare the frames data for export
+    const exportData = prepareFramesForExport();
+    
+    // Convert to JSON string with pretty formatting
+    const jsonString = JSON.stringify(exportData, null, 2);
+    
+    // Create a blob with the JSON data
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    
+    // Get the filename from the input field
+    const filenameInput = document.getElementById('save-filename');
+    const filename = filenameInput.value.trim() || 'triangle_frames';
+    
+    // Create a download link
+    const downloadLink = document.createElement('a');
+    downloadLink.href = URL.createObjectURL(blob);
+    downloadLink.download = `${filename}.json`;
+    
+    // Append to the body, click, and remove
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+  });
+  
+  // Play on Mirrors button
+  const playOnMirrorsBtn = document.getElementById('play-on-mirrors');
+  playOnMirrorsBtn.addEventListener("click", async () => {
+    // Disable the button during processing
+    playOnMirrorsBtn.disabled = true;
+    playOnMirrorsBtn.textContent = 'Playing...';
+    
+    try {
+      // Prepare the frames data for export
+      const exportData = prepareFramesForExport();
+      
+      // Send the data to the server
+      const response = await fetch('http://localhost:8002/play_animation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(exportData)
+      });
+      
+      const result = await response.json();
+      
+      if (! response.ok) {
+        alert(`Error playing animation: ${result.message}`);
+        console.error('Server error:', result);
+      }
+    } catch (error) {
+      alert(`Error: ${error.message}. Make sure the animation server is running.`);
+      console.error('Error sending animation to server:', error);
+    } finally {
+      // Re-enable the button
+      playOnMirrorsBtn.disabled = false;
+      playOnMirrorsBtn.textContent = 'Play';
+    }
+  });
+  
+  // Import button and file input handling
+  const importBtn = document.getElementById('import');
+  const importFileInput = document.getElementById('import-file');
+  
+  importBtn.addEventListener("click", () => {
+    importFileInput.click(); // Trigger the file input dialog
+  });
+  
+  importFileInput.addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Extract the filename without extension to use for the save filename
+    const fileName = file.name.replace(/\.json$/, '');
+    
+    try {
+      // Read the selected file
+      const text = await file.text();
+      const importedData = JSON.parse(text);
+      
+      // Validate the imported data
+      if (!Array.isArray(importedData)) {
+        throw new Error("Invalid format: Expected an array of frames");
+      }
+      
+      // Clear existing frames
+      frames.length = 0; // Empty the array without reassigning
+      framesContainer.innerHTML = '';
+      
+      // Process each imported frame
+      importedData.forEach(frameData => {
+        // Create a new frame with the imported data
+        const newFrame = {
+          selected: new Set(),
+          angles: {}
+        };
+        
+        // If the imported frame has angles data, use it
+        if (frameData.angles) {
+          newFrame.angles = frameData.angles;
+        }
+        
+        // If the imported frame has selected triangles, add them
+        if (frameData.selected) {
+          // Convert array to Set if it's an array
+          if (Array.isArray(frameData.selected)) {
+            frameData.selected.forEach(index => newFrame.selected.add(index));
+          } else {
+            // Handle case where selected might be an object with keys
+            Object.keys(frameData.selected).forEach(index => {
+              if (frameData.selected[index]) {
+                newFrame.selected.add(index);
+              }
+            });
+          }
+        }
+        
+        frames.push(newFrame);
+        addFrameElement(frames.length - 1);
+      });
+      
+      // Reset to the first frame
+      currentFrameIndex = 0;
+      updateFrameDisplay();
+      
+      // Update the selected count display
+      const currentFrame = frames[currentFrameIndex];
+      selectedCountEl.textContent = currentFrame.selected.size;
+      
+      // Update the filename input to match the imported file's name
+      document.getElementById('save-filename').value = fileName;
+      
+      alert(`Successfully imported ${frames.length} frames from ${file.name}`);
+    } catch (error) {
+      alert(`Error importing file: ${error.message}`);
+      console.error('Import error:', error);
+    }
+    
+    // Reset the file input
+    importFileInput.value = '';
+  });
+  
   selectAllBtn.addEventListener("click", ()=>{
-    if (isPlaying) return;
+    if (isPlaying) return; // Don't allow changes while playing
     
     const currentFrame = frames[currentFrameIndex];
     document.querySelectorAll("polygon.triangle").forEach(p=>{
-      const idx = p.getAttribute("data-index");
-      currentFrame.selected.add(idx);
+      const index = p.getAttribute("data-index");
+      currentFrame.selected.add(index);
       p.classList.add("selected");
     });
     updateUI();
   });
   
   clearBtn.addEventListener("click", ()=>{
-    if (isPlaying) return;
+    if (isPlaying) return; // Don't allow changes while playing
     
     const currentFrame = frames[currentFrameIndex];
+    
+    // Clear selection
     currentFrame.selected.clear();
     document.querySelectorAll("polygon.triangle.selected").forEach(p=>{
       p.classList.remove("selected");
     });
+    
+    // Reset all triangle angles to 90 degrees
+    const DEFAULT_ANGLE = 90;
+    for (let i = 1; i <= triangles.length; i++) {
+      currentFrame.angles[i] = DEFAULT_ANGLE;
+      updateAngleIndicator(i, DEFAULT_ANGLE);
+    }
+    
+    updateUI();
+  });
+  
+  // Set up angle buttons
+  const angle40Btn = document.getElementById("angle-40");
+  const angle90Btn = document.getElementById("angle-90");
+  const angle140Btn = document.getElementById("angle-140");
+  
+  // Helper function to update active state of angle buttons
+  function updateAngleButtonsState(activeAngle) {
+    angle40Btn.classList.toggle('active', activeAngle === 40);
+    angle90Btn.classList.toggle('active', activeAngle === 90);
+    angle140Btn.classList.toggle('active', activeAngle === 140);
+  }
+  
+  // Set angle for selected triangles to 40°
+  angle40Btn.addEventListener("click", () => {
+    if (isPlaying) return; // Don't allow changes while playing
+    
+    const currentFrame = frames[currentFrameIndex];
+    const angle = 40;
+    
+    // Apply angle only to selected triangles with checked checkboxes
+    const checkedTriangles = getCheckedTriangles();
+    currentFrame.selected.forEach(index => {
+      if (checkedTriangles.has(index)) {
+        currentFrame.angles[index] = angle;
+        updateAngleIndicator(index, angle);
+      }
+    });
+    
+    updateAngleButtonsState(angle);
+    updateUI();
+  });
+  
+  // Helper function to get triangles with checked checkboxes
+  function getCheckedTriangles() {
+    const checkedTriangles = new Set();
+    document.querySelectorAll('.triangle-checkbox:checked').forEach(checkbox => {
+      checkedTriangles.add(checkbox.getAttribute('data-triangle-id'));
+    });
+    return checkedTriangles;
+  }
+  
+  // Group checkbox functionality
+  const groupCheckbox = document.getElementById('group-checkbox');
+  groupCheckbox.addEventListener('change', function() {
+    const isChecked = this.checked;
+    
+    // Update all individual triangle checkboxes
+    document.querySelectorAll('.triangle-checkbox').forEach(checkbox => {
+      checkbox.checked = isChecked;
+      
+      // Update the checkbox state in our storage
+      const triangleId = checkbox.getAttribute('data-triangle-id');
+      if (triangleId) {
+        checkboxStates[triangleId] = isChecked;
+      }
+    });
+  });
+  
+  // Set angle for selected triangles to 90°
+  angle90Btn.addEventListener("click", () => {
+    if (isPlaying) return; // Don't allow changes while playing
+    
+    const currentFrame = frames[currentFrameIndex];
+    const angle = 90;
+    
+    // Apply angle only to selected triangles with checked checkboxes
+    const checkedTriangles = getCheckedTriangles();
+    currentFrame.selected.forEach(index => {
+      if (checkedTriangles.has(index)) {
+        currentFrame.angles[index] = angle;
+        updateAngleIndicator(index, angle);
+      }
+    });
+    
+    updateAngleButtonsState(angle);
+    updateUI();
+  });
+  
+  // Set angle for selected triangles to 140°
+  angle140Btn.addEventListener("click", () => {
+    if (isPlaying) return; // Don't allow changes while playing
+    
+    const currentFrame = frames[currentFrameIndex];
+    const angle = 140;
+    
+    // Apply angle only to selected triangles with checked checkboxes
+    const checkedTriangles = getCheckedTriangles();
+    currentFrame.selected.forEach(index => {
+      if (checkedTriangles.has(index)) {
+        currentFrame.angles[index] = angle;
+        updateAngleIndicator(index, angle);
+      }
+    });
+    
+    updateAngleButtonsState(angle);
+    updateUI();
+  });
+  
+  // Reset angles to default
+  resetAnglesBtn.addEventListener("click", () => {
+    if (isPlaying) return; // Don't allow changes while playing
+    
+    const currentFrame = frames[currentFrameIndex];
+    const checkedTriangles = getCheckedTriangles();
+    
+    // Reset angles for selected triangles or all if none selected
+    if (currentFrame.selected.size > 0) {
+      // Reset only selected triangles with checked checkboxes
+      currentFrame.selected.forEach(index => {
+        if (checkedTriangles.has(index)) {
+          delete currentFrame.angles[index];
+          updateAngleIndicator(index, DEFAULT_ANGLE);
+        }
+      });
+    } else {
+      // Reset all triangles
+      Object.keys(currentFrame.angles).forEach(index => {
+        delete currentFrame.angles[index];
+        updateAngleIndicator(index, DEFAULT_ANGLE);
+      });
+    }
+    
     updateUI();
   });
   
   addFrameBtn.addEventListener("click", addFrame);
-  playAnimationBtn.addEventListener("click", playAnimation);
-  stopAnimationBtn.addEventListener("click", stopAnimation);
+  
+  // Delete the current frame
+  deleteFrameBtn.addEventListener("click", () => {
+    if (isPlaying) return; // Don't allow changes while playing
+    if (frames.length <= 1) return; // Ensure at least one frame remains
+    
+    // Remove the current frame from the array
+    frames.splice(currentFrameIndex, 1);
+    
+    // Update frame IDs in the frames array
+    frames.forEach((frame, index) => {
+      frame.id = index;
+    });
+    
+    // Clear the frames container and rebuild all frame elements
+    framesContainer.innerHTML = '';
+    
+    // Recreate all frame elements with correct event handlers
+    frames.forEach((frame, index) => {
+      addFrameElement(index);
+    });
+    
+    // Adjust current frame index if needed
+    if (currentFrameIndex >= frames.length) {
+      currentFrameIndex = frames.length - 1;
+    }
+    
+    // Update the display and UI (including selected triangles list)
+    updateFrameDisplay();
+    updateUI();
+  });
+  playBtn.addEventListener("click", playAnimation);
+  stopBtn.addEventListener("click", stopAnimation);
 
-  // Initialize
+  // Initialize first frame in UI
+  // Add click handler to the first frame
+  document.querySelector('.frame[data-frame="0"]').addEventListener("click", () => {
+    if (!isPlaying) {
+      switchToFrame(0);
+    }
+  });
+  
   updateUI();
 
   // Cursor feedback

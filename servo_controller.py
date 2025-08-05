@@ -240,6 +240,9 @@ class MainController(MovementGenerator):
                     start = current_angles[name]
                     end = target_angles[name]
                     angle = start + (end - start) * smooth_ratio
+                    # Apply inversion if the servo is configured as inverted
+                    if table.inverted:
+                        angle = 180 - angle
                     table.kit.servo[table.channel].angle = angle
             #time.sleep(delay)
         
