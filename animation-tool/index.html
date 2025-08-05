@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>SUNMIRROR</title>
+<style>
+  body {
+    font-family: system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+    margin: 0;
+    display: flex;
+    min-height: 100vh;
+    background: #f5f5f7;
+    overflow-x: hidden;
+  }
+  
+  @media (max-width: 768px) {
+    body {
+      flex-direction: column;
+    }
+  }
+  #app {
+    flex: 1;
+    display: flex;
+    padding: 1rem;
+    gap: 1rem;
+    position: relative;
+    flex-direction: column;
+  }
+  
+  @media (min-width: 769px) {
+    #app {
+      flex-direction: row;
+    }
+  }
+  
+  /* Mobile-specific layout */
+  @media (max-width: 768px) {
+    #app {
+      padding: 0.5rem;
+      gap: 0.5rem;
+      margin-bottom: 150px; /* Space for timeline */
+    }
+  }
+  .panel {
+    width: 100%;
+    max-width: 100%;
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 20px 40px -10px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    order: 1;
+  }
+  
+  @media (min-width: 769px) {
+    .panel {
+      width: 260px;
+      max-width: 260px;
+      order: 0;
+    }
+  }
+  
+  /* Mobile-specific panel layout */
+  @media (max-width: 768px) {
+    .panel {
+      padding: 10px;
+      border-radius: 8px;
+      gap: 8px;
+    }
+  }
+  h1 {
+    font-size: 1.1rem;
+    margin: 0 0 8px;
+  }
+  #svg-container {
+    flex: 1;
+    position: relative;
+    overflow: visible;
+    min-height: 300px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    order: 0;
+    transform: scaleX(-1);
+  }
+  
+  @media (min-width: 769px) {
+    #svg-container {
+      order: 1;
+    }
+  }
+  
+  /* Mobile-specific SVG container */
+  @media (max-width: 768px) {
+    #svg-container {
+      min-height: auto;
+      height: 60vh;
+      overflow: hidden;
+      margin-bottom: 0;
+    }
+  }
+  svg {
+    max-width: 100%;
+    max-height: 70vh;
+    height: auto;
+    display: block;
+    cursor: pointer;
+    user-select: none;
+  }
+  
+  /* Mobile-specific SVG sizing */
+  @media (max-width: 768px) {
+    svg {
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+    }
+  }
+  polygon.triangle {
+    stroke: #222;
+    stroke-width: 1;
+    fill: transparent;
+    transition: fill .2s, stroke .2s;
+  }
+  polygon.triangle:hover {
+    stroke-width: 2;
+  }
+  polygon.triangle.selected {
+    fill: rgba(250, 200, 25, 0.5);
+    stroke: #d68300;
+  }
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    touch-action: manipulation;
+  }
+  
+  @media (max-width: 480px) {
+    button {
+      padding: 10px 14px;
+      font-size: 1rem;
+      flex: 1;
+      min-width: fit-content;
+    }
+  }
+  button.secondary {
+    background: #f3f4f6;
+    color: #374151;
+  }
+  .selected-list {
+    flex: 1;
+    overflow: auto;
+    background: #f9fafb;
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    line-height: 1.3;
+  }
+  
+  /* Hide selected list on mobile */
+  @media (max-width: 768px) {
+    .selected-list {
+      display: none;
+    }
+  }
+  .triangle-info {
+    font-size: 0.8rem;
+    color: #555;
+  }
+  
+  /* Mobile triangle info layout */
+  @media (max-width: 768px) {
+    .triangle-info {
+      display: inline-block;
+      margin-right: 12px;
+    }
+  }
+  .badge {
+    display: inline-block;
+    background: #2563eb;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+  .footer {
+    margin-top: auto;
+    font-size: 0.65rem;
+    color: #666;
+  }
+  #timeline-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+  }
+  
+  @media (max-width: 768px) {
+    #timeline-container {
+      padding: 8px;
+      gap: 6px;
+    }
+  }
+  .timeline-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .timeline-info {
+    margin-left: auto;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  
+  @media (max-width: 480px) {
+    .timeline-info {
+      width: 100%;
+      margin-left: 0;
+      margin-top: 8px;
+    }
+  }
+  #frames-container {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 5px 0;
+    min-height: 60px;
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+  }
+  
+  #frames-container::-webkit-scrollbar {
+    height: 8px;
+  }
+  
+  #frames-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+  }
+  
+  #frames-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 10px;
+  }
+  
+  #frames-container::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+  }
+  .frame {
+    min-width: 50px;
+    height: 50px;
+    border: 2px solid #ccc;
+    border-radius: 6px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    background: #f0f0f0;
+    position: relative;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .frame.active {
+    border-color: #2563eb;
+    background: #e0e7ff;
+  }
+  .frame-number {
+    font-weight: bold;
+    font-size: 0.9rem;
+  }
+  .hidden {
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div class="panel">
+      <h1>Triangle Selection</h1>
+      <div class="controls">
+        <button id="select-all">Select All</button>
+        <button id="clear" class="secondary">Clear</button>
+      </div>
+      <div class="triangle-info">Total triangles: <span id="total-count">0</span></div>
+      <div class="triangle-info">Selected: <span id="selected-count">0</span></div>
+      <div class="triangle-info">Current frame: <span id="current-frame">1</span></div>
+      <div class="selected-list" id="selected-list">
+        <!-- Selected indices will appear here -->
+      </div>
+      <div class="footer">
+        Click individual triangles to toggle. Selected ones are highlighted.
+      </div>
+    </div>
+    <div id="svg-container">
+      <svg id="hex-svg" viewBox="-220 -220 440 440" aria-label="Rotated hexagon subdivided into selectable equilateral triangles" role="img">
+        <!-- Group with rotation -->
+        <g id="rotated-group" transform="rotate(210)">
+          <!-- Triangles and hexagon boundary injected here -->
+        </g>
+      </svg>
+    </div>
+    <div id="timeline-container">
+      <div class="timeline-controls">
+        <button id="add-frame">Add Frame</button>
+        <button id="play-animation">Play</button>
+        <button id="stop-animation" class="hidden">Stop</button>
+        <span class="timeline-info">
+          <label for="animation-speed">Animation Speed:</label> 
+          <select id="animation-speed">
+            <option value="2000">Slow</option>
+            <option value="1000" selected>Normal</option>
+            <option value="500">Fast</option>
+          </select>
+        </span>
+      </div>
+      <div id="frames-container">
+        <!-- Frames will be added here -->
+        <div class="frame active" data-frame="0">
+          <div class="frame-number">1</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  // Parameters
+  const smallSide = 1; // unit triangle side
+  const hexSide = 3; // hexagon side in same units
+  const scale = 60; // scale to pixels
+  const h = Math.sqrt(3)/2 * smallSide; // height in units
+  const hexRadius = hexSide; // for regular hexagon, side == radius
+  // Build hexagon vertices (unit)
+  const hexVertices = [];
+  for (let k=0;k<6;k++){
+    const ang = k * Math.PI / 3;
+    hexVertices.push([hexRadius * Math.cos(ang), hexRadius * Math.sin(ang)]);
+  }
+
+  // Point in polygon (ray-casting)
+  function pointInPoly(x, y, poly){
+    let inside = false;
+    for (let i=0, j=poly.length-1; i<poly.length; j=i++){
+      const xi = poly[i][0], yi = poly[i][1];
+      const xj = poly[j][0], yj = poly[j][1];
+      const intersect = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi)*(y - yi)/(yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Generate raw triangles with centroids
+  let raw = [];
+  const jMin = -Math.ceil((hexRadius+h)/h), jMax = Math.ceil((hexRadius+h)/h);
+  for(let j=jMin;j<=jMax;j++){
+    const y = j*h, xOffset = 0.5*(j%2);
+    const iMin = -Math.ceil(hexRadius+2), iMax = Math.ceil(hexRadius+2);
+    for(let i=iMin;i<=iMax;i++){
+      const x = i + xOffset;
+      // upward
+      const A=[x,y], B=[x+smallSide,y], C=[x+0.5*smallSide,y+h];
+      const cu=[(A[0]+B[0]+C[0])/3, (A[1]+B[1]+C[1])/3];
+      if(pointInPoly(cu[0],cu[1],hexVertices)) raw.push({pts:[A,B,C],cent:cu});
+      // downward
+      const D=[x,y], E=[x+smallSide,y], F=[x+0.5*smallSide,y-h];
+      const cd=[(D[0]+E[0]+F[0])/3, (D[1]+E[1]+F[1])/3];
+      if(pointInPoly(cd[0],cd[1],hexVertices)) raw.push({pts:[D,E,F],cent:cd});
+    }
+  }
+  
+  // Sort into rings by distance then angle, with offset for rings 2 & 3
+  raw.sort((a,b)=> Math.hypot(a.cent[0],a.cent[1]) - Math.hypot(b.cent[0],b.cent[1]));
+  const ringSizes=[6,18,30]; // Known sizes of each ring
+  let idx=0;
+  const triangles=[]; // Final ordered triangles
+  
+  ringSizes.forEach((size,ri)=>{
+    const group = raw.slice(idx, idx+size);
+    // compute custom angle (start at top-right)
+    group.forEach(t=>{
+      const [x,y]=t.cent;
+      const angStd = Math.atan2(y,x)*180/Math.PI;
+      const angCustom = (90 - angStd + 360)%360;
+      t.orderAng = (angCustom - 45 + 360)%360;
+    });
+    group.sort((a,b)=>a.orderAng - b.orderAng);
+    // for rings 2 & 3, start one step behind (rotate by one)
+    if(ri>0) group.unshift(group.pop());
+    
+    // Add triangle points to final array
+    group.forEach(t => triangles.push(t.pts));
+    idx += size;
+  });
+
+  // UI elements
+  const svg = document.getElementById("hex-svg");
+  const group = document.getElementById("rotated-group");
+  const totalCountEl = document.getElementById("total-count");
+  const selectedCountEl = document.getElementById("selected-count");
+  const selectedListEl = document.getElementById("selected-list");
+  const selectAllBtn = document.getElementById("select-all");
+  const clearBtn = document.getElementById("clear");
+  const currentFrameEl = document.getElementById("current-frame");
+  const addFrameBtn = document.getElementById("add-frame");
+  const playAnimationBtn = document.getElementById("play-animation");
+  const stopAnimationBtn = document.getElementById("stop-animation");
+  const animationSpeedSelect = document.getElementById("animation-speed");
+  const framesContainer = document.getElementById("frames-container");
+  
+  // Animation state
+  let currentFrameIndex = 0;
+  let isPlaying = false;
+  let animationInterval = null;
+  const frames = [
+    { id: 0, selected: new Set() } // First frame
+  ];
+  
+  // Initialize triangles
+  // Add hexagon boundary for reference (optional)
+  const hexPath = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+  hexPath.setAttribute("points", hexVertices.map(p => (p[0]*scale) + "," + (p[1]*scale)).join(" "));
+  hexPath.setAttribute("fill","none");
+  hexPath.setAttribute("stroke","#444");
+  hexPath.setAttribute("stroke-width","2");
+  hexPath.setAttribute("stroke-dasharray","6,4");
+  group.appendChild(hexPath);
+
+  triangles.forEach((tri, idx)=>{
+    const poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+    const scaled = tri.map(p => [(p[0]*scale).toFixed(3), (p[1]*scale).toFixed(3)]);
+    poly.setAttribute("points", scaled.map(p=>p.join(",")).join(" "));
+    poly.classList.add("triangle");
+    poly.setAttribute("data-index", idx+1); // 1-based
+    poly.setAttribute("aria-label", "Triangle " + (idx+1));
+    poly.setAttribute("role","button");
+    // click handler
+    poly.addEventListener("click", (e)=>{
+      if (isPlaying) return; // Don't allow changes while playing
+      
+      const index = poly.getAttribute("data-index");
+      const currentFrame = frames[currentFrameIndex];
+      
+      if (currentFrame.selected.has(index)){
+        currentFrame.selected.delete(index);
+        poly.classList.remove("selected");
+      } else {
+        currentFrame.selected.add(index);
+        poly.classList.add("selected");
+      }
+      updateUI();
+    });
+    group.appendChild(poly);
+  });
+
+  // Update UI to reflect current frame and selection
+  function updateUI(){
+    totalCountEl.textContent = triangles.length;
+    currentFrameEl.textContent = currentFrameIndex + 1;
+    
+    const currentFrame = frames[currentFrameIndex];
+    selectedCountEl.textContent = currentFrame.selected.size;
+    
+    const arr = Array.from(currentFrame.selected).sort((a,b)=>+a - +b);
+    if (arr.length === 0){
+      selectedListEl.textContent = "None";
+    } else {
+      selectedListEl.innerHTML = arr.map(i => `<div>Triangle <strong>#${i}</strong></div>`).join("");
+    }
+  }
+  
+  // Update triangle visual selection state based on current frame
+  function updateTriangleSelections() {
+    const currentFrame = frames[currentFrameIndex];
+    
+    // Clear all visual selections
+    document.querySelectorAll("polygon.triangle.selected").forEach(p => {
+      p.classList.remove("selected");
+    });
+    
+    // Apply selections from current frame
+    currentFrame.selected.forEach(index => {
+      const poly = document.querySelector(`polygon.triangle[data-index="${index}"]`);
+      if (poly) {
+        poly.classList.add("selected");
+      }
+    });
+  }
+
+  // Frame switching
+  function switchToFrame(frameIndex) {
+    if (frameIndex < 0 || frameIndex >= frames.length) return;
+    
+    currentFrameIndex = frameIndex;
+    
+    // Update active frame in UI
+    document.querySelectorAll(".frame").forEach(frameEl => {
+      frameEl.classList.remove("active");
+    });
+    document.querySelector(`.frame[data-frame="${frameIndex}"]`).classList.add("active");
+    
+    // Update triangle selections
+    updateTriangleSelections();
+    
+    // Update other UI elements
+    updateUI();
+  }
+
+  // Add a new frame
+  function addFrame() {
+    const newFrameId = frames.length;
+    const previousSelections = new Set(frames[currentFrameIndex].selected);
+    
+    // Create new frame with copy of current selection
+    frames.push({
+      id: newFrameId,
+      selected: previousSelections
+    });
+    
+    // Create frame UI element
+    const frameEl = document.createElement("div");
+    frameEl.classList.add("frame");
+    frameEl.setAttribute("data-frame", newFrameId);
+    frameEl.innerHTML = `<div class="frame-number">${newFrameId + 1}</div>`;
+    frameEl.addEventListener("click", () => {
+      if (!isPlaying) {
+        switchToFrame(newFrameId);
+      }
+    });
+    
+    framesContainer.appendChild(frameEl);
+    
+    // Switch to new frame
+    switchToFrame(newFrameId);
+  }
+
+  // Play animation
+  function playAnimation() {
+    if (isPlaying) return;
+    if (frames.length <= 1) return; // Need at least 2 frames to animate
+    
+    isPlaying = true;
+    playAnimationBtn.classList.add("hidden");
+    stopAnimationBtn.classList.remove("hidden");
+    
+    let animationFrameIndex = 0;
+    const speed = parseInt(animationSpeedSelect.value, 10);
+    
+    // Start animation loop
+    animationInterval = setInterval(() => {
+      switchToFrame(animationFrameIndex);
+      animationFrameIndex = (animationFrameIndex + 1) % frames.length;
+    }, speed);
+  }
+
+  // Stop animation
+  function stopAnimation() {
+    if (!isPlaying) return;
+    
+    clearInterval(animationInterval);
+    isPlaying = false;
+    playAnimationBtn.classList.remove("hidden");
+    stopAnimationBtn.classList.add("hidden");
+  }
+
+  // Button event listeners
+  selectAllBtn.addEventListener("click", ()=>{
+    if (isPlaying) return;
+    
+    const currentFrame = frames[currentFrameIndex];
+    document.querySelectorAll("polygon.triangle").forEach(p=>{
+      const idx = p.getAttribute("data-index");
+      currentFrame.selected.add(idx);
+      p.classList.add("selected");
+    });
+    updateUI();
+  });
+  
+  clearBtn.addEventListener("click", ()=>{
+    if (isPlaying) return;
+    
+    const currentFrame = frames[currentFrameIndex];
+    currentFrame.selected.clear();
+    document.querySelectorAll("polygon.triangle.selected").forEach(p=>{
+      p.classList.remove("selected");
+    });
+    updateUI();
+  });
+  
+  addFrameBtn.addEventListener("click", addFrame);
+  playAnimationBtn.addEventListener("click", playAnimation);
+  stopAnimationBtn.addEventListener("click", stopAnimation);
+
+  // Initialize
+  updateUI();
+
+  // Cursor feedback
+  svg.addEventListener("mouseover", (e)=>{
+    if (e.target.matches("polygon.triangle")){
+      svg.style.cursor = isPlaying ? "default" : "pointer";
+    }
+  });
+  svg.addEventListener("mouseout", (e)=>{
+    svg.style.cursor = "default";
+  });
+})();
+</script>
+</body>
+</html>
