@@ -550,7 +550,7 @@
       
       <div class="selected-list" id="selected-list">None</div>
       <div class="footer">
-        Click individual triangles to toggle. Selected ones are highlighted.
+        Click individual triangles to toggle. Hold Ctrl to select multiple triangles. Selected ones are highlighted.
       </div>
     </div>
     <div id="svg-container">
@@ -700,7 +700,6 @@
       
       return {
         id: index + 1,
-        selected: Array.from(frame.selected),
         angles: completeAngles
       };
     });
@@ -745,6 +744,9 @@
   const DEFAULT_ANGLE = 90;
   const MIN_ANGLE = 10;
   const MAX_ANGLE = 170;
+  
+  // Track Ctrl key state
+  let isCtrlPressed = false;
   
   // Initialize triangles
   // Add hexagon boundary for reference (optional)
@@ -809,6 +811,22 @@
       if (sidebarItem) {
         sidebarItem.classList.add("hover-highlight");
       }
+      
+      // Auto-select triangle when hovering with Ctrl key pressed
+      if (isCtrlPressed && !isPlaying) {
+        const currentFrame = frames[currentFrameIndex];
+        
+        if (!currentFrame.selected.has(index)) {
+          currentFrame.selected.add(index);
+          poly.classList.add("selected");
+
+          
+        }
+
+        // Make sure the checkbox is checked when selected via Ctrl+hover
+        checkboxStates[index] = true;
+        updateUI();
+      }
     });
     
     poly.addEventListener("mouseleave", (e) => {
@@ -847,7 +865,7 @@
     // Save current checkbox states before updating UI
     document.querySelectorAll('.triangle-checkbox').forEach(checkbox => {
       const id = checkbox.getAttribute('data-triangle-id');
-      checkboxStates[id] = checkbox.checked;
+     // checkboxStates[id] = checkbox.checked;
     });
     
     const arr = Array.from(currentFrame.selected).sort((a,b)=>+a - +b);
@@ -858,6 +876,7 @@
       selectedListEl.innerHTML = arr.map(i => {
         const angle = currentFrame.angles[i] || DEFAULT_ANGLE;
         // Use stored checkbox state or default to checked if not found
+        // When a triangle is in the selected list, it should be checked by default
         const isChecked = checkboxStates[i] !== undefined ? checkboxStates[i] : true;
         return `
           <div class="triangle-item" data-triangle-id="${i}">
@@ -1056,13 +1075,21 @@
   function addFrame() {
     const insertPosition = currentFrameIndex + 1; // Insert after current frame
     const previousSelections = new Set(frames[currentFrameIndex].selected);
+    const previousAngles = frames[currentFrameIndex].angles;
     
-    // Create new frame with copy of current selection
+    // Create new frame with copy of current selection and angles
     const newFrame = {
       id: insertPosition,
       selected: previousSelections,
       angles: {}
     };
+    
+    // Copy angles from the current frame for selected triangles
+    previousSelections.forEach(triangleId => {
+      if (previousAngles[triangleId]) {
+        newFrame.angles[triangleId] = previousAngles[triangleId];
+      }
+    });
     
     // Insert the new frame after the current frame
     frames.splice(insertPosition, 0, newFrame);
@@ -1215,19 +1242,13 @@
           newFrame.angles = frameData.angles;
         }
         
-        // If the imported frame has selected triangles, add them
-        if (frameData.selected) {
-          // Convert array to Set if it's an array
-          if (Array.isArray(frameData.selected)) {
-            frameData.selected.forEach(index => newFrame.selected.add(index));
-          } else {
-            // Handle case where selected might be an object with keys
-            Object.keys(frameData.selected).forEach(index => {
-              if (frameData.selected[index]) {
-                newFrame.selected.add(index);
-              }
-            });
-          }
+        // Select triangles where angle is not 90 degrees (DEFAULT_ANGLE)
+        if (frameData.angles) {
+          Object.entries(frameData.angles).forEach(([index, angle]) => {
+            if (angle !== DEFAULT_ANGLE) {
+              newFrame.selected.add(index);
+            }
+          });
         }
         
         frames.push(newFrame);
@@ -1461,11 +1482,39 @@
   // Cursor feedback
   svg.addEventListener("mouseover", (e)=>{
     if (e.target.matches("polygon.triangle")){
-      svg.style.cursor = isPlaying ? "default" : "pointer";
+      svg.style.cursor = isPlaying ? "default" : (isCtrlPressed ? "cell" : "pointer");
     }
   });
   svg.addEventListener("mouseout", (e)=>{
     svg.style.cursor = "default";
+  });
+  
+  // Track Ctrl key state
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Control") {
+      isCtrlPressed = true;
+      // Update cursor if hovering over a triangle
+      const hoveredTriangle = document.querySelector("polygon.triangle:hover");
+      if (hoveredTriangle && !isPlaying) {
+        svg.style.cursor = "cell";
+      }
+    }
+  });
+  
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "Control") {
+      isCtrlPressed = false;
+      // Update cursor if hovering over a triangle
+      const hoveredTriangle = document.querySelector("polygon.triangle:hover");
+      if (hoveredTriangle && !isPlaying) {
+        svg.style.cursor = "pointer";
+      }
+    }
+  });
+  
+  // Reset Ctrl key state when window loses focus
+  window.addEventListener("blur", () => {
+    isCtrlPressed = false;
   });
 })();
 </script>
