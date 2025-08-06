@@ -294,7 +294,7 @@ if __name__ == "__main__":
                     center=center_angle,
                     amplitude=45.0,  # Reduced amplitude for safety
                     step_size=1,
-                    loops=10
+                    loops=1
                 )
                 #print(sync_path)
                 controller.play_frame_path(sync_path)

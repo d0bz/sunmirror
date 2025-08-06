@@ -12,7 +12,7 @@ REMOTE_USER = "pi"
 REMOTE_HOST = "10.35.113.70"
 REMOTE_PATH = "/home/pi/sunmirror"
 WATCH_PATH = "./"
-INCLUDE_EXTENSIONS = {".py", ".txt"}  # only sync these file types (optional)
+INCLUDE_EXTENSIONS = {".py", ".txt", ".json"}  # only sync these file types (optional)
 
 class SCPSyncHandler(FileSystemEventHandler):
     def on_modified(self, event):

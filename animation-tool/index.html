@@ -144,7 +144,8 @@
   }
   
   polygon.triangle.angle-90 {
-    
+    fill: #007bff;
+    fill-opacity: 0.5;
   }
   
   polygon.triangle.angle-above-90 {
@@ -354,6 +355,26 @@
     justify-content: space-between;
   }
   
+  .angle-input-group {
+    display: flex;
+    align-items: center;
+  }
+  
+  .angle-input {
+    width: 40px;
+    text-align: right;
+    border: 1px solid #ccc;
+    border-radius: 4px 0 0 4px;
+    padding: 5px;
+    margin: 0;
+  }
+  
+  .angle-input-group .angle-btn {
+    width: 45px;
+    border-radius: 0 4px 4px 0;
+    margin: 0;
+  }
+  
   .angle-btn {
     flex: 1;
     padding: 6px 0;
@@ -532,9 +553,15 @@
       <div class="angle-controls">
         <label>Triangle angle:</label>
         <div class="angle-buttons-group">
-          <button id="angle-40" class="angle-btn">40°</button>
+          <div class="angle-input-group">
+            <input type="number" id="custom-angle-1" min="10" max="170" value="40" class="angle-input">
+            <button id="angle-40" class="angle-btn">°</button>
+          </div>
           <button id="angle-90" class="angle-btn">90°</button>
-          <button id="angle-140" class="angle-btn">140°</button>
+          <div class="angle-input-group">
+            <input type="number" id="custom-angle-2" min="10" max="170" value="140" class="angle-input">
+            <button id="angle-140" class="angle-btn">°</button>
+          </div>
         </div>
         <button id="reset-angles" hidden class="secondary">Reset to 90°</button>
       </div>
@@ -1316,17 +1343,30 @@
   
   // Helper function to update active state of angle buttons
   function updateAngleButtonsState(activeAngle) {
-    angle40Btn.classList.toggle('active', activeAngle === 40);
+    const customAngle1 = parseInt(document.getElementById('custom-angle-1').value, 10);
+    const customAngle2 = parseInt(document.getElementById('custom-angle-2').value, 10);
+    
+    angle40Btn.classList.toggle('active', activeAngle === customAngle1);
     angle90Btn.classList.toggle('active', activeAngle === 90);
-    angle140Btn.classList.toggle('active', activeAngle === 140);
+    angle140Btn.classList.toggle('active', activeAngle === customAngle2);
   }
   
-  // Set angle for selected triangles to 40°
+  // Set angle for selected triangles to custom angle 1
   angle40Btn.addEventListener("click", () => {
     if (isPlaying) return; // Don't allow changes while playing
     
     const currentFrame = frames[currentFrameIndex];
-    const angle = 40;
+    const customAngleInput = document.getElementById('custom-angle-1');
+    let angle = parseInt(customAngleInput.value, 10);
+    
+    // Validate angle is within allowed range
+    if (isNaN(angle) || angle < MIN_ANGLE) {
+      angle = MIN_ANGLE;
+      customAngleInput.value = MIN_ANGLE;
+    } else if (angle > MAX_ANGLE) {
+      angle = MAX_ANGLE;
+      customAngleInput.value = MAX_ANGLE;
+    }
     
     // Apply angle only to selected triangles with checked checkboxes
     const checkedTriangles = getCheckedTriangles();
@@ -1387,12 +1427,22 @@
     updateUI();
   });
   
-  // Set angle for selected triangles to 140°
+  // Set angle for selected triangles to custom angle 2
   angle140Btn.addEventListener("click", () => {
     if (isPlaying) return; // Don't allow changes while playing
     
     const currentFrame = frames[currentFrameIndex];
-    const angle = 140;
+    const customAngleInput = document.getElementById('custom-angle-2');
+    let angle = parseInt(customAngleInput.value, 10);
+    
+    // Validate angle is within allowed range
+    if (isNaN(angle) || angle < MIN_ANGLE) {
+      angle = MIN_ANGLE;
+      customAngleInput.value = MIN_ANGLE;
+    } else if (angle > MAX_ANGLE) {
+      angle = MAX_ANGLE;
+      customAngleInput.value = MAX_ANGLE;
+    }
     
     // Apply angle only to selected triangles with checked checkboxes
     const checkedTriangles = getCheckedTriangles();
@@ -1439,8 +1489,7 @@
   // Delete the current frame
   deleteFrameBtn.addEventListener("click", () => {
     if (isPlaying) return; // Don't allow changes while playing
-    if (frames.length <= 1) return; // Ensure at least one frame remains
-    
+    if (frames.length <= 1) return;  
     // Remove the current frame from the array
     frames.splice(currentFrameIndex, 1);
     
@@ -1515,6 +1564,32 @@
   // Reset Ctrl key state when window loses focus
   window.addEventListener("blur", () => {
     isCtrlPressed = false;
+  });
+  
+  // Add event listeners for custom angle inputs
+  const customAngle1Input = document.getElementById('custom-angle-1');
+  const customAngle2Input = document.getElementById('custom-angle-2');
+  
+  customAngle1Input.addEventListener('input', function() {
+    let value = parseInt(this.value, 10);
+    if (isNaN(value) || value < MIN_ANGLE) {
+      value = MIN_ANGLE;
+      this.value = MIN_ANGLE;
+    } else if (value > MAX_ANGLE) {
+      value = MAX_ANGLE;
+      this.value = MAX_ANGLE;
+    }
+  });
+  
+  customAngle2Input.addEventListener('input', function() {
+    let value = parseInt(this.value, 10);
+    if (isNaN(value) || value < MIN_ANGLE) {
+      value = MIN_ANGLE;
+      this.value = MIN_ANGLE;
+    } else if (value > MAX_ANGLE) {
+      value = MAX_ANGLE;
+      this.value = MAX_ANGLE;
+    }
   });
 })();
 </script>
