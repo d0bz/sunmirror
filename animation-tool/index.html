@@ -144,7 +144,6 @@
   }
   
   polygon.triangle.angle-90 {
-    fill: #007bff;
     fill-opacity: 0.5;
   }
   
@@ -554,13 +553,13 @@
         <label>Triangle angle:</label>
         <div class="angle-buttons-group">
           <div class="angle-input-group">
-            <input type="number" id="custom-angle-1" min="10" max="170" value="40" class="angle-input">
-            <button id="angle-40" class="angle-btn">°</button>
+            <input type="number" id="custom-angle-1" min="10" max="170" value="20" class="angle-input">
+            <button id="angle-20" class="angle-btn">°</button>
           </div>
           <button id="angle-90" class="angle-btn">90°</button>
           <div class="angle-input-group">
-            <input type="number" id="custom-angle-2" min="10" max="170" value="140" class="angle-input">
-            <button id="angle-140" class="angle-btn">°</button>
+            <input type="number" id="custom-angle-2" min="10" max="170" value="160" class="angle-input">
+            <button id="angle-160" class="angle-btn">°</button>
           </div>
         </div>
         <button id="reset-angles" hidden class="secondary">Reset to 90°</button>
@@ -767,8 +766,10 @@
     updateSelectedCount();
   }
   
-  // Default angle value
+  // Default angle values
   const DEFAULT_ANGLE = 90;
+  const DEFAULT_ANGLE_1 = 20;
+  const DEFAULT_ANGLE_2 = 160;
   const MIN_ANGLE = 10;
   const MAX_ANGLE = 170;
   
@@ -917,9 +918,9 @@
             </div>
             <div class="triangle-angle-control">
               <div class="angle-buttons-group">
-                <button class="angle-btn triangle-angle-btn ${angle === 40 ? 'active' : ''}" data-angle="40" data-triangle-id="${i}">40°</button>
+                <button class="angle-btn triangle-angle-btn ${angle === DEFAULT_ANGLE_1 ? 'active' : ''}" data-angle="${DEFAULT_ANGLE_1}" data-triangle-id="${i}">${DEFAULT_ANGLE_1}°</button>
                 <button class="angle-btn triangle-angle-btn ${angle === 90 ? 'active' : ''}" data-angle="90" data-triangle-id="${i}">90°</button>
-                <button class="angle-btn triangle-angle-btn ${angle === 140 ? 'active' : ''}" data-angle="140" data-triangle-id="${i}">140°</button>
+                <button class="angle-btn triangle-angle-btn ${angle === DEFAULT_ANGLE_2 ? 'active' : ''}" data-angle="${DEFAULT_ANGLE_2}" data-triangle-id="${i}">${DEFAULT_ANGLE_2}°</button>
               </div>
             </div>
           </div>
@@ -1337,22 +1338,22 @@
   });
   
   // Set up angle buttons
-  const angle40Btn = document.getElementById("angle-40");
+  const angle20Btn = document.getElementById("angle-20");
   const angle90Btn = document.getElementById("angle-90");
-  const angle140Btn = document.getElementById("angle-140");
+  const angle160Btn = document.getElementById("angle-160");
   
   // Helper function to update active state of angle buttons
   function updateAngleButtonsState(activeAngle) {
     const customAngle1 = parseInt(document.getElementById('custom-angle-1').value, 10);
     const customAngle2 = parseInt(document.getElementById('custom-angle-2').value, 10);
     
-    angle40Btn.classList.toggle('active', activeAngle === customAngle1);
+    angle20Btn.classList.toggle('active', activeAngle === customAngle1);
     angle90Btn.classList.toggle('active', activeAngle === 90);
-    angle140Btn.classList.toggle('active', activeAngle === customAngle2);
+    angle160Btn.classList.toggle('active', activeAngle === customAngle2);
   }
   
   // Set angle for selected triangles to custom angle 1
-  angle40Btn.addEventListener("click", () => {
+  angle20Btn.addEventListener("click", () => {
     if (isPlaying) return; // Don't allow changes while playing
     
     const currentFrame = frames[currentFrameIndex];
@@ -1428,7 +1429,7 @@
   });
   
   // Set angle for selected triangles to custom angle 2
-  angle140Btn.addEventListener("click", () => {
+  angle160Btn.addEventListener("click", () => {
     if (isPlaying) return; // Don't allow changes while playing
     
     const currentFrame = frames[currentFrameIndex];
