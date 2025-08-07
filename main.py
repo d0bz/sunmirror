@@ -194,6 +194,8 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--file", help="Path to animation JSON file to play")
     parser.add_argument("-s", "--step-size", type=float, default=1.0,
                       help="Step size in degrees for animation interpolation (default: 1.0)")
+    parser.add_argument("-l", "--loop", action="store_true", 
+                      help="Run the animation file in a continuous loop")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     parser.add_argument("--simulation", action="store_true", help="Run in simulation mode without hardware")
     
@@ -215,17 +217,32 @@ if __name__ == "__main__":
     
     center_angle = 90.0  # Ensure it's a single float value
     
-    # If a file is provided, load and play it, then exit
+    # If a file is provided, load and play it
     if args.file:
-        success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
-        if success:
-            # Center all mirrors before exiting
-            print("Centering all mirrors before exit...")
-            for mirror in all_mirrors:
-                controller.move_table(mirror, center_angle)
-            sys.exit(0)
+        # If loop flag is set, keep playing the animation in a loop
+        if args.loop:
+            print(f"Running animation file {args.file} in continuous loop mode. Press Ctrl+C to stop.")
+            try:
+                while True:
+                    success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
+                    if not success:
+                        print("Error playing animation, exiting loop.")
+                        sys.exit(1)
+            except KeyboardInterrupt:
+                print("\nLoop interrupted by user. Centering all mirrors before exit...")
+                # Center all mirrors before exiting
+                controller.cleanup()
+                sys.exit(0)
         else:
-            sys.exit(1)
+            # Play once and exit
+            success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
+            if success:
+                # Center all mirrors before exiting
+                print("Centering all mirrors before exit...")
+                controller.cleanup()
+                sys.exit(0)
+            else:
+                sys.exit(1)
     
     try:
         print("\nAvailable commands:")

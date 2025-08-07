@@ -218,15 +218,18 @@ class MainController(MovementGenerator):
         """Clean up and center all mirrors before shutdown"""
         if self.debug:
             print("[INFO] Cleaning up and centering all mirrors...")
-        for name, table in self.tables.items():
-            try:
-                if self.debug:
-                    print(f"[INFO] Centering {name}...")
-                # Use smooth movement during cleanup
-                table.move_to_smooth(table.center)
-            except Exception as e:
-                if self.debug:
-                    print(f"[ERROR] Failed to center {name}: {e}")
+        
+        # Create a dictionary of target angles (center position for each servo)
+        target_angles = {name: table.center for name, table in self.tables.items()}
+        
+        try:
+            # Use interpolate_servo_moves to smoothly move all servos to center
+            self.interpolate_servo_moves(target_angles, steps=20, delay=0.02)
+            if self.debug:
+                print("[INFO] All mirrors centered successfully")
+        except Exception as e:
+            if self.debug:
+                print(f"[ERROR] Failed to center mirrors: {e}")
 
     
     def interpolate_servo_moves(self, target_angles, steps=20, delay=0.02):
