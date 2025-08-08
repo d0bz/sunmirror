@@ -1383,7 +1383,6 @@
     
     // Disable the button during processing
     shutdownRaspberryBtn.disabled = true;
-    shutdownRaspberryBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     
     try {
       // Send shutdown command to the server
@@ -1411,7 +1410,6 @@
     } finally {
       // Re-enable the button
       shutdownRaspberryBtn.disabled = false;
-      shutdownRaspberryBtn.innerHTML = '<i class="fas fa-power-off"></i>';
     }
   });
   
