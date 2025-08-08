@@ -6,6 +6,7 @@ import sys
 from servo_controller import MainController
 from movement_generator import MovementGenerator
 import time
+import signal
 
 # Mapping from servo number to ring position (1-based indexing)
 SERVO_TO_POSITION = {
@@ -216,6 +217,20 @@ if __name__ == "__main__":
     all_mirrors = inner_ring + middle_ring + outer_ring
     
     center_angle = 90.0  # Ensure it's a single float value
+
+    def stop_signal_handler():
+        print("\n[INFO] Smoothly centering all mirrors...")
+        try:
+            controller.cleanup()
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+        print("Goodbye!")
+        exit(0)
+
+        
+    # Register the signal handlers
+    signal.signal(signal.SIGINT, stop_signal_handler)   # Ctrl+C
+    signal.signal(signal.SIGTERM, stop_signal_handler)  # kill command
     
     # If a file is provided, load and play it
     if args.file:
@@ -440,10 +455,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n[INFO] Ctrl+C detected, stopping...")
     finally:
-        # Center all mirrors
-        print("\n[INFO] Smoothly centering all mirrors...")
-        try:
-            controller.cleanup()
-        except Exception as e:
-            print(f"Error during cleanup: {e}")
-        print("Goodbye!")
+        stop_signal_handler()

@@ -4,12 +4,18 @@ import json
 import sys
 import subprocess
 import traceback
+import signal
+import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs
 import tempfile
 
 # Add parent directory to path to access main.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Global variables to track the current animation process
+current_process = None
+PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'animation_pid.txt')
 
 class AnimationServer(SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -27,7 +33,11 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 post_data_bytes = self.rfile.read(content_length)
                 # Convert bytes to string and parse JSON
                 post_data_str = post_data_bytes.decode('utf-8')
-                animation_data = json.loads(post_data_str)
+                post_data = json.loads(post_data_str)
+                
+                # Extract animation frames and loop parameter
+                animation_data = post_data.get('frames', post_data)
+                loop = post_data.get('loop', False)
                 
                 # Create a temporary file to store the animation data
                 temp_fd, temp_filename = tempfile.mkstemp(suffix='.json')
@@ -41,15 +51,56 @@ class AnimationServer(SimpleHTTPRequestHandler):
                     main_py_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'main.py')
                     cmd = [sys.executable, main_py_path, '--file', temp_filename, '--step-size', '1.0']
                     
+                    # Add loop parameter if enabled
+                    if loop:
+                        cmd.append('--loop')
+                    
+                    # Kill any existing animation process
+                    self._kill_existing_process()
+                    
                     # Execute the command in a separate process
+                    global current_process
                     process = subprocess.Popen(
                         cmd,
                         stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
+                        stderr=subprocess.PIPE,
+                        preexec_fn=os.setsid  # Use process group for easier termination
                     )
                     
-                    # Wait for the process to complete and get output
-                    stdout_bytes, stderr_bytes = process.communicate()
+                    # Store the process globally
+                    current_process = process
+                    
+                    # Save PID to file
+                    with open(PID_FILE, 'w') as pid_file:
+                        pid_file.write(str(process.pid))
+                    
+                    # For long-running animations, don't wait for completion
+                    if loop:
+                        # Return immediately with process info
+                        response_dict = {
+                            'status': 'running',
+                            'message': 'Animation started successfully',
+                            'pid': process.pid
+                        }
+                        
+                        # Convert response dict to JSON string
+                        response_json = json.dumps(response_dict)
+                        # Convert JSON string to bytes
+                        response_bytes = response_json.encode('utf-8')
+                        
+                        # Send success response
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Content-Length', str(len(response_bytes)))
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        
+                        # Write bytes to response
+                        self.wfile.write(response_bytes)
+                        return
+                    else:
+                        # For non-looping animations, wait for completion
+                        stdout_bytes, stderr_bytes = process.communicate()
                     
                     # Decode bytes to strings
                     stdout_str = stdout_bytes.decode('utf-8', errors='replace')
@@ -112,9 +163,204 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 
                 # Write bytes to response
                 self.wfile.write(error_bytes)
+        elif self.path == '/shutdown':
+            try:
+                # Get content length
+                content_length = int(self.headers['Content-Length'])
+                # Read post data as bytes
+                post_data_bytes = self.rfile.read(content_length)
+                # Convert bytes to string and parse JSON
+                post_data_str = post_data_bytes.decode('utf-8')
+                post_data = json.loads(post_data_str)
+                
+                # Extract confirmation parameter (optional security measure)
+                confirmation = post_data.get('confirmation', '')
+                
+                if confirmation == 'CONFIRM_SHUTDOWN':
+                    # Execute the shutdown command
+                    print("Executing Raspberry Pi shutdown command...")
+                    
+                    # Kill any existing animation process first
+                    self._kill_existing_process()
+                    
+                    # Create response before shutting down
+                    response_dict = {
+                        'status': 'success',
+                        'message': 'Shutdown command sent to Raspberry Pi. The device will power off shortly.'
+                    }
+                    
+                    # Convert response dict to JSON string
+                    response_json = json.dumps(response_dict)
+                    # Convert JSON string to bytes
+                    response_bytes = response_json.encode('utf-8')
+                    
+                    # Send success response
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Content-Length', str(len(response_bytes)))
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    
+                    # Write bytes to response
+                    self.wfile.write(response_bytes)
+                    
+                    # Schedule the shutdown command to run after response is sent
+                    def delayed_shutdown():
+                        time.sleep(2)  # Give time for the response to be sent
+                        subprocess.run(['sudo', 'shutdown', '-h', 'now'])
+                    
+                    # Start shutdown in a separate thread to allow response to be sent
+                    from threading import Thread
+                    shutdown_thread = Thread(target=delayed_shutdown)
+                    shutdown_thread.daemon = True
+                    shutdown_thread.start()
+                    
+                else:
+                    # Invalid confirmation
+                    error_dict = {
+                        'status': 'error',
+                        'message': 'Invalid confirmation code. Shutdown aborted.'
+                    }
+                    
+                    # Convert error dict to JSON string
+                    error_json = json.dumps(error_dict)
+                    # Convert JSON string to bytes
+                    error_bytes = error_json.encode('utf-8')
+                    
+                    # Send error response
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Content-Length', str(len(error_bytes)))
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    
+                    # Write bytes to response
+                    self.wfile.write(error_bytes)
+                    
+            except Exception as e:
+                # Print the full exception traceback for debugging
+                print("Error in shutdown endpoint:")
+                traceback.print_exc()
+                
+                # Create error response
+                error_dict = {
+                    'status': 'error',
+                    'message': str(e),
+                    'traceback': traceback.format_exc()
+                }
+                
+                # Convert error dict to JSON string
+                error_json = json.dumps(error_dict)
+                # Convert JSON string to bytes
+                error_bytes = error_json.encode('utf-8')
+                
+                # Send error response
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(error_bytes)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                
+                # Write bytes to response
+                self.wfile.write(error_bytes)
         else:
             # For all other paths, use the default handler
             SimpleHTTPRequestHandler.do_POST(self)
+    
+    def _kill_existing_process(self):
+        """Kill any existing animation process"""
+        global current_process
+        killed_something = False
+        
+        # Check if we have a process in memory
+        if current_process and current_process.poll() is None:
+            try:
+                # Kill the entire process group
+                os.killpg(os.getpgid(current_process.pid), signal.SIGTERM)
+                print(f"Killed existing process with PID {current_process.pid}")
+                current_process = None
+                killed_something = True
+            except Exception as e:
+                print(f"Error killing process: {e}")
+        
+        # If no process in memory, check PID file
+        if os.path.exists(PID_FILE):
+            try:
+                with open(PID_FILE, 'r') as pid_file:
+                    pid = int(pid_file.read().strip())
+                
+                # Try to kill the process
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGTERM)
+                    print(f"Killed existing process with PID {pid} from file")
+                    killed_something = True
+                except ProcessLookupError:
+                    # Process doesn't exist anymore
+                    print(f"Process with PID {pid} not found")
+                except Exception as e:
+                    print(f"Error killing process from PID file: {e}")
+                
+                # Clean up PID file
+                os.unlink(PID_FILE)
+            except Exception as e:
+                print(f"Error reading PID file: {e}")
+        
+        # Check if main.py is running and kill it
+        try:
+            # Find any running main.py processes
+            result = subprocess.run(
+                ['pgrep', '-f', 'python.*main\.py'], 
+                capture_output=True, 
+                text=True
+            )
+            
+            if result.returncode == 0:
+                # Get the PIDs
+                pids = [int(pid) for pid in result.stdout.strip().split('\n')]
+                
+                for pid in pids:
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        print(f"Sent SIGTERM to main.py process with PID {pid}")
+                        killed_something = True
+                    except Exception as e:
+                        print(f"Error killing main.py process {pid}: {e}")
+        except Exception as e:
+            print(f"Error checking for main.py processes: {e}")
+        
+        return killed_something
+    
+    def do_GET(self):
+        """Handle GET requests - serve static files or handle API endpoints"""
+        # Check for kill endpoint
+        if self.path == '/kill_animation':
+            killed = self._kill_existing_process()
+            
+            # Create response
+            response_dict = {
+                'status': 'success' if killed else 'info',
+                'message': 'Animation process killed' if killed else 'No running animation found'
+            }
+            
+            # Convert response dict to JSON string
+            response_json = json.dumps(response_dict)
+            # Convert JSON string to bytes
+            response_bytes = response_json.encode('utf-8')
+            
+            # Send response
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Content-Length', str(len(response_bytes)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # Write bytes to response
+            self.wfile.write(response_bytes)
+            return
+        
+        # For all other paths, use the default handler
+        self.path = self.path.split('?')[0]  # Remove query parameters
+        return SimpleHTTPRequestHandler.do_GET(self)
     
     def do_OPTIONS(self):
         """Handle OPTIONS requests for CORS preflight"""
@@ -124,7 +370,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
-def run_server(port=8002):
+def run_server(port=80):
     """Run the animation server on the specified port"""
     server_address = ('', port)
     httpd = HTTPServer(server_address, AnimationServer)

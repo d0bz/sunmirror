@@ -1,7 +1,7 @@
 # movement_generator.py
 import math
 
-class MovementGenerator:
+class MovementGenerator:   
     @staticmethod
     def generate_wave_animation(
         table_names,

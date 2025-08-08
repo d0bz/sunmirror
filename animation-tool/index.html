@@ -59,8 +59,8 @@
   
   @media (min-width: 769px) {
     .panel {
-      width: 300px;
-      max-width: 300px;
+      width: 330px;
+      max-width: 330px;
       order: 0;
     }
   }
@@ -139,7 +139,7 @@
   
   /* Triangle fill colors based on angle */
   polygon.triangle.angle-below-90 {
-    fill: #555;
+    fill: #555 !important;
     fill-opacity: 0.3;
   }
   
@@ -148,7 +148,7 @@
   }
   
   polygon.triangle.angle-above-90 {
-    fill: #bd2727;
+    fill: #bd2727 !important;
     fill-opacity: 0.3;
   }
   polygon.triangle:hover, polygon.triangle.hover-highlight {
@@ -156,9 +156,15 @@
     stroke: #2563eb;
   }
   polygon.triangle.selected {
-    /*fill: rgba(250, 200, 25, 0.5);*/
-    stroke: #d68300;
-    stroke-width: 2px;
+    fill: #ff9800;
+    stroke: #ff5722;
+    stroke-width: 1;
+    fill-opacity: 0.3;
+  }
+  
+  .triangle.checked {
+    stroke: #0d47a1 !important;
+    stroke-width: 2 !important;
   }
   .controls {
     display: flex;
@@ -169,7 +175,7 @@
   .save-container {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0;
     margin-left: auto;
   }
   
@@ -533,15 +539,26 @@
 </head>
 <body>
   <div id="app">
+    <button id="fullscreen-btn" style="position: absolute; top: 10px; right: 10px; z-index: 1000; background: #2563eb; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer;">
+      <i class="fas fa-expand"></i> Fullscreen
+    </button>
+    <button id="shutdown-raspberry" style="position: absolute; top: 50px; right: 10px; z-index: 1000; background: #6b21a8; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer;">
+      <i class="fas fa-power-off"></i> Shutdown
+    </button>
     <div class="panel">
       <div class="controls">
         <button id="select-all">Select All</button>
         <button id="clear" class="secondary">Clear</button>
         <div class="save-container">
-          <input type="text" id="save-filename" placeholder="filename" value="triangle_frames">
-          <button id="play-on-mirrors" title="Play on mirrors"><i class="fas fa-play-circle"></i></button>
-          <button id="save" title="Save animation"><i class="fas fa-save"></i></button>
-          <button id="import" title="Import animation"><i class="fas fa-file-import"></i></button>
+          <input type="text" id="save-filename" placeholder="filename" value="triangle_frames" style="margin-right: 2px;">
+          <div style="display: flex; flex-direction: column; align-items: center; margin: 0;">
+            <label for="loop-checkbox" style="font-size: 0.7rem; margin-bottom: 1px;">Loop</label>
+            <input type="checkbox" id="loop-checkbox" style="margin: 0;">
+          </div>
+          <button id="play-on-mirrors" title="Play on mirrors" style="margin: 0; border-radius: 4px 0 0 4px;"><i class="fas fa-play-circle"></i></button>
+          <button id="stop-mirrors" title="Stop animation on mirrors" style="background:red;margin: 0; border-radius: 0;"><i class="fas fa-stop"></i></button>
+          <button id="save" title="Save animation" style="margin: 0; border-radius: 0;"><i class="fas fa-save"></i></button>
+          <button id="import" title="Import animation" style="margin: 0; border-radius: 0 4px 4px 0;"><i class="fas fa-file-import"></i></button>
           <input type="file" id="import-file" accept=".json" style="display: none;">
         </div>
       </div>
@@ -611,8 +628,42 @@
     </div>
   </div>
 
+
+
 <script>
 (function(){
+
+  // Fullscreen button functionality
+  const fullscreenBtn = document.getElementById('fullscreen-btn');
+  
+  fullscreenBtn.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  });
+  
+  // Get reference to shutdown button
+  const shutdownRaspberryBtn = document.getElementById('shutdown-raspberry');
+  
+  // Update buttons based on fullscreen state
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) {
+      fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i> Exit Fullscreen';
+      // Hide shutdown button in fullscreen mode
+      shutdownRaspberryBtn.style.display = 'none';
+    } else {
+      fullscreenBtn.innerHTML = '<i class="fas fa-expand"></i> Fullscreen';
+      // Show shutdown button when not in fullscreen mode
+      shutdownRaspberryBtn.style.display = 'block';
+    }
+  });
+
   // Parameters
   const smallSide = 1; // unit triangle side
   const hexSide = 3; // hexagon side in same units
@@ -773,8 +824,9 @@
   const MIN_ANGLE = 10;
   const MAX_ANGLE = 170;
   
-  // Track Ctrl key state
+  // Track Ctrl key state and touch state
   let isCtrlPressed = false;
+  let isTouchSelecting = false;
   
   // Initialize triangles
   // Add hexagon boundary for reference (optional)
@@ -821,9 +873,29 @@
         // Reset angle to 90 degrees when removed from selection
         currentFrame.angles[index] = DEFAULT_ANGLE;
         updateAngleIndicator(index, DEFAULT_ANGLE);
+        
+        // Update checkbox state
+        checkboxStates[index] = false;
+        poly.classList.remove("checked");
+        
+        // Update the checkbox in the UI if it exists
+        const checkbox = document.querySelector(`.triangle-checkbox[data-triangle-id="${index}"]`);
+        if (checkbox) {
+          checkbox.checked = false;
+        }
       } else {
         currentFrame.selected.add(index);
         poly.classList.add("selected");
+        
+        // Update checkbox state
+        checkboxStates[index] = true;
+        poly.classList.add("checked");
+        
+        // Update the checkbox in the UI if it exists
+        const checkbox = document.querySelector(`.triangle-checkbox[data-triangle-id="${index}"]`);
+        if (checkbox) {
+          checkbox.checked = true;
+        }
       }
       
       // Update angle input to show the angle of the last selected triangle
@@ -893,7 +965,18 @@
     // Save current checkbox states before updating UI
     document.querySelectorAll('.triangle-checkbox').forEach(checkbox => {
       const id = checkbox.getAttribute('data-triangle-id');
-     // checkboxStates[id] = checkbox.checked;
+      if (checkbox.checked) {
+        checkboxStates[id] = true;
+      }
+    });
+    
+    // Update triangle colors based on checkbox states
+    document.querySelectorAll('polygon.triangle').forEach(triangle => {
+      const id = triangle.getAttribute('data-index');
+      triangle.classList.remove('checked');
+      if (checkboxStates[id]) {
+        triangle.classList.add('checked');
+      }
     });
     
     const arr = Array.from(currentFrame.selected).sort((a,b)=>+a - +b);
@@ -960,7 +1043,18 @@
       // Add event listeners to checkboxes
       document.querySelectorAll('.triangle-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', function() {
-          // No additional action needed here, the checked state is used by global controls
+          const triangleId = this.getAttribute('data-triangle-id');
+          checkboxStates[triangleId] = this.checked;
+          
+          // Update triangle color in the hexagon
+          const svgTriangle = document.querySelector(`polygon.triangle[data-index="${triangleId}"]`);
+          if (svgTriangle) {
+            if (this.checked) {
+              svgTriangle.classList.add('checked');
+            } else {
+              svgTriangle.classList.remove('checked');
+            }
+          }
         });
       });
       
@@ -1194,29 +1288,44 @@
   
   // Play on Mirrors button
   const playOnMirrorsBtn = document.getElementById('play-on-mirrors');
+  const stopMirrorsBtn = document.getElementById('stop-mirrors');
+  const loopCheckbox = document.getElementById('loop-checkbox');
+  
   playOnMirrorsBtn.addEventListener("click", async () => {
     // Disable the button during processing
     playOnMirrorsBtn.disabled = true;
-    playOnMirrorsBtn.textContent = 'Playing...';
+    playOnMirrorsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     
     try {
       // Prepare the frames data for export
       const exportData = prepareFramesForExport();
       
+      // Add loop parameter to the data
+      const dataToSend = {
+        frames: exportData,
+        loop: loopCheckbox.checked
+      };
+      
       // Send the data to the server
-      const response = await fetch('http://localhost:8002/play_animation', {
+      const response = await fetch('http://localhost/play_animation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(exportData)
+        body: JSON.stringify(dataToSend)
       });
       
       const result = await response.json();
       
-      if (! response.ok) {
+      if (!response.ok) {
         alert(`Error playing animation: ${result.message}`);
         console.error('Server error:', result);
+      } else {
+        // If it's a looping animation, show the stop button
+        if (loopCheckbox.checked) {
+          playOnMirrorsBtn.style.display = 'none';
+          stopMirrorsBtn.style.display = 'inline-block';
+        }
       }
     } catch (error) {
       alert(`Error: ${error.message}. Make sure the animation server is running.`);
@@ -1224,7 +1333,36 @@
     } finally {
       // Re-enable the button
       playOnMirrorsBtn.disabled = false;
-      playOnMirrorsBtn.textContent = 'Play';
+      playOnMirrorsBtn.innerHTML = '<i class="fas fa-play-circle"></i>';
+    }
+  });
+  
+  // Stop Mirrors button
+  stopMirrorsBtn.addEventListener("click", async () => {
+    // Disable the button during processing
+    stopMirrorsBtn.disabled = true;
+    stopMirrorsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    
+    try {
+      // Call the kill_animation endpoint
+      const response = await fetch('http://localhost/kill_animation');
+      const result = await response.json();
+      
+      if (!response.ok) {
+        alert(`Error stopping animation: ${result.message}`);
+        console.error('Server error:', result);
+      } else {
+        console.log('Animation stopped:', result);
+      }
+    } catch (error) {
+      alert(`Error: ${error.message}. Make sure the animation server is running.`);
+      console.error('Error stopping animation:', error);
+    } finally {
+      // Switch back to play button
+      stopMirrorsBtn.disabled = false;
+      stopMirrorsBtn.innerHTML = '<i class="fas fa-stop"></i>';
+      //stopMirrorsBtn.style.display = 'none';
+      playOnMirrorsBtn.style.display = 'inline-block';
     }
   });
   
@@ -1234,6 +1372,47 @@
   
   importBtn.addEventListener("click", () => {
     importFileInput.click(); // Trigger the file input dialog
+  });
+  
+  // Shutdown Raspberry Pi button event handler
+  shutdownRaspberryBtn.addEventListener("click", async () => {
+    // Ask for confirmation before shutting down
+    const confirmShutdown = confirm("Are you sure you want to shut down the SunMirror? This will power off the device.");
+    
+    if (!confirmShutdown) return;
+    
+    // Disable the button during processing
+    shutdownRaspberryBtn.disabled = true;
+    shutdownRaspberryBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    
+    try {
+      // Send shutdown command to the server
+      const response = await fetch('http://localhost/shutdown', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          confirmation: 'CONFIRM_SHUTDOWN'
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        alert(`Error shutting down: ${result.message}`);
+        console.error('Server error:', result);
+      } else {
+        alert("Shutdown command sent successfully. The Raspberry Pi will power off shortly.");
+      }
+    } catch (error) {
+      alert(`Error: ${error.message}. Make sure the server is running.`);
+      console.error('Error sending shutdown command:', error);
+    } finally {
+      // Re-enable the button
+      shutdownRaspberryBtn.disabled = false;
+      shutdownRaspberryBtn.innerHTML = '<i class="fas fa-power-off"></i>';
+    }
   });
   
   importFileInput.addEventListener("change", async (event) => {
@@ -1404,6 +1583,16 @@
       const triangleId = checkbox.getAttribute('data-triangle-id');
       if (triangleId) {
         checkboxStates[triangleId] = isChecked;
+        
+        // Update triangle color in the hexagon
+        const svgTriangle = document.querySelector(`polygon.triangle[data-index="${triangleId}"]`);
+        if (svgTriangle) {
+          if (isChecked) {
+            svgTriangle.classList.add('checked');
+          } else {
+            svgTriangle.classList.remove('checked');
+          }
+        }
       }
     });
   });
@@ -1565,6 +1754,207 @@
   // Reset Ctrl key state when window loses focus
   window.addEventListener("blur", () => {
     isCtrlPressed = false;
+  });
+  
+  // Touch event handling for mobile devices
+  let lastTouchedTriangle = null;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchStartTime = 0;
+  
+  // Function to find a triangle element at specific coordinates
+  function findTriangleAtPoint(x, y) {
+    // Get all triangles
+    const triangles = document.querySelectorAll('polygon.triangle');
+    
+    // Get SVG dimensions and position
+    const svgRect = svg.getBoundingClientRect();
+    const svgCenterX = svgRect.left + svgRect.width / 2;
+    const svgCenterY = svgRect.top + svgRect.height / 2;
+    
+    // Calculate coordinates for 210 degree rotation
+    // For a 210 degree rotation, we need to apply the appropriate transformation
+    const angle = 210 * Math.PI / 180; // Convert 210 degrees to radians
+    const dx = x - svgCenterX;
+    const dy = y - svgCenterY;
+    
+    // Apply rotation transformation
+    const rotatedX = svgCenterX + dx * Math.cos(angle) - dy * Math.sin(angle);
+    const rotatedY = svgCenterY + dx * Math.sin(angle) + dy * Math.cos(angle);
+    
+    // Use the rotated coordinates
+    const svgPoint = svg.createSVGPoint();
+    svgPoint.x = rotatedX;
+    svgPoint.y = rotatedY;
+    
+    // Get the inverse of the current transformation matrix
+    // This will convert screen coordinates to SVG coordinates accounting for all transforms
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return null; // Safety check
+    
+    const transformedPoint = svgPoint.matrixTransform(matrix.inverse());
+    
+    // Check each triangle individually
+    for (const triangle of triangles) {
+      // For each triangle, we need to consider its own transformation relative to the SVG
+      // Get the triangle's points in SVG coordinate space
+      const points = triangle.getAttribute('points').split(' ').map(p => {
+        const [x, y] = p.split(',').map(parseFloat);
+        return [x, y];
+      });
+      
+      // Use the point-in-polygon algorithm with the transformed point
+      if (pointInPoly(transformedPoint.x, transformedPoint.y, points)) {
+        return triangle;
+      }
+    }
+    
+    return null;
+  }
+  
+  // Handle touch start
+  svg.addEventListener('touchstart', (e) => {
+    // Prevent default to avoid scrolling while selecting triangles
+    e.preventDefault();
+    isTouchSelecting = true;
+    
+    // Get touch coordinates relative to the viewport
+    const touch = e.touches[0];
+    
+    // Find triangle at touch point using the findTriangleAtPoint function
+    // which already handles the SVG transformation
+    const triangle = findTriangleAtPoint(touch.clientX, touch.clientY);
+    lastTouchedTriangle = triangle;
+    
+    // Store the start position and time for detecting taps
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    touchStartTime = Date.now();
+    
+    // Highlight the triangle in the sidebar if found
+    if (triangle) {
+      const index = triangle.getAttribute('data-index');
+      const sidebarItem = document.querySelector(`.triangle-item .triangle-angle-btn[data-triangle-id="${index}"]`)?.closest('.triangle-item');
+      if (sidebarItem) {
+        sidebarItem.classList.add("hover-highlight");
+      }
+    }
+  });
+  
+  // Handle touch move (similar to mouseover with Ctrl pressed)
+  svg.addEventListener('touchmove', (e) => {
+    if (!isTouchSelecting || isPlaying) return;
+    
+    // Prevent default to avoid scrolling while selecting triangles
+    e.preventDefault();
+    
+    // Get touch coordinates relative to the viewport
+    const touch = e.touches[0];
+    
+    // Find triangle at touch point using the findTriangleAtPoint function
+    // which already handles the SVG transformation
+    const triangle = findTriangleAtPoint(touch.clientX, touch.clientY);
+    
+    // If we found a triangle (even if it's the same as the last one)
+    if (triangle) {
+      const index = triangle.getAttribute('data-index');
+      const currentFrame = frames[currentFrameIndex];
+      
+      // Remove highlight from previous triangle if different
+      if (lastTouchedTriangle && lastTouchedTriangle !== triangle) {
+        const prevIndex = lastTouchedTriangle.getAttribute('data-index');
+        const prevSidebarItem = document.querySelector(`.triangle-item .triangle-angle-btn[data-triangle-id="${prevIndex}"]`)?.closest('.triangle-item');
+        if (prevSidebarItem) {
+          prevSidebarItem.classList.remove("hover-highlight");
+        }
+      }
+      
+      // Add highlight to new triangle
+      const sidebarItem = document.querySelector(`.triangle-item .triangle-angle-btn[data-triangle-id="${index}"]`)?.closest('.triangle-item');
+      if (sidebarItem) {
+        sidebarItem.classList.add("hover-highlight");
+      }
+      
+      // Always select the triangle and check its checkbox when touched
+      // This ensures that even if the checkbox was manually unchecked, it gets checked again on hover
+      currentFrame.selected.add(index);
+      triangle.classList.add("selected");
+      
+      // Always make sure the checkbox is checked when selected via touch
+      checkboxStates[index] = true;
+      updateUI();
+      
+      // Update last touched triangle
+      lastTouchedTriangle = triangle;
+    }
+  });
+  
+  // Handle touch end
+  svg.addEventListener('touchend', (e) => {
+    isTouchSelecting = false;
+    
+    // Check if this was a tap (quick touch without much movement)
+    const touchEndTime = Date.now();
+    const touchDuration = touchEndTime - touchStartTime;
+    
+    // Get the last touch position
+    const touch = e.changedTouches[0];
+    const touchEndX = touch.clientX;
+    const touchEndY = touch.clientY;
+    
+    // Calculate distance moved
+    const touchDistance = Math.sqrt(
+      Math.pow(touchEndX - touchStartX, 2) + 
+      Math.pow(touchEndY - touchStartY, 2)
+    );
+    
+    // If this was a tap (short duration and minimal movement)
+    if (touchDuration < 300 && touchDistance < 10) {
+      // Toggle selection of the triangle that was tapped
+      if (lastTouchedTriangle && !isPlaying) {
+        const index = lastTouchedTriangle.getAttribute('data-index');
+        const currentFrame = frames[currentFrameIndex];
+        
+        // Toggle selection
+        if (currentFrame.selected.has(index)) {
+          currentFrame.selected.delete(index);
+          lastTouchedTriangle.classList.remove("selected");
+          checkboxStates[index] = false;
+        } else {
+          currentFrame.selected.add(index);
+          lastTouchedTriangle.classList.add("selected");
+          checkboxStates[index] = true;
+        }
+        
+        // Update UI to reflect changes
+        updateUI();
+      }
+    }
+    
+    // Remove highlight from last touched triangle
+    if (lastTouchedTriangle) {
+      const index = lastTouchedTriangle.getAttribute('data-index');
+      const sidebarItem = document.querySelector(`.triangle-item .triangle-angle-btn[data-triangle-id="${index}"]`)?.closest('.triangle-item');
+      if (sidebarItem) {
+        sidebarItem.classList.remove("hover-highlight");
+      }
+      lastTouchedTriangle = null;
+    }
+  });
+  
+  // Cancel touch selection if touch is canceled
+  svg.addEventListener('touchcancel', (e) => {
+    isTouchSelecting = false;
+    
+    // Remove highlight from last touched triangle
+    if (lastTouchedTriangle) {
+      const index = lastTouchedTriangle.getAttribute('data-index');
+      const sidebarItem = document.querySelector(`.triangle-item .triangle-angle-btn[data-triangle-id="${index}"]`)?.closest('.triangle-item');
+      if (sidebarItem) {
+        sidebarItem.classList.remove("hover-highlight");
+      }
+      lastTouchedTriangle = null;
+    }
   });
   
   // Add event listeners for custom angle inputs

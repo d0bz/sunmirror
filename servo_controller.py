@@ -5,6 +5,97 @@ from adafruit_servokit import ServoKit
 import busio
 from board import SCL, SDA
 
+class MockI2C:
+    """Mock I2C class to simulate I2C bus without hardware"""
+    def __init__(self, scl=None, sda=None):
+        self.scl = scl
+        self.sda = sda
+        self._locked = False
+        print("Initialized MockI2C bus")
+        
+    def try_lock(self):
+        """Simulate locking the I2C bus"""
+        self._locked = True
+        return True
+        
+    def unlock(self):
+        """Simulate unlocking the I2C bus"""
+        self._locked = False
+        
+    def scan(self):
+        """Return a list of fake I2C device addresses"""
+        if not self._locked:
+            raise RuntimeError("I2C bus must be locked before scanning")
+        return [0x40, 0x41, 0x42, 0x43]
+    
+    def writeto(self, address, buffer, stop=True, start=0, end=None):
+        """Simulate writing to an I2C device"""
+        # Handle start and end parameters
+        if end is None:
+            end = len(buffer)
+        actual_buffer = buffer[start:end]
+        
+        if isinstance(actual_buffer, (bytes, bytearray)):
+            print(f"Mock I2C write to address 0x{address:02x}: {len(actual_buffer)} bytes")
+        else:
+            print(f"Mock I2C write to address 0x{address:02x}: {actual_buffer}")
+        return len(actual_buffer)
+    
+    def readfrom_into(self, address, buffer, stop=True, start=0, end=None):
+        """Simulate reading from an I2C device"""
+        if end is None:
+            end = len(buffer)
+            
+        print(f"Mock I2C read from address 0x{address:02x} into buffer of size {end-start}")
+        
+        # Fill buffer with dummy data
+        for i in range(start, end):
+            buffer[i] = i & 0xFF
+            
+        return end - start
+    
+    def writeto_then_readfrom(self, address, buffer_out, buffer_in, out_start=0, out_end=None, 
+                             in_start=0, in_end=None, stop=True):
+        """Simulate writing to then reading from an I2C device"""
+        self.writeto(address, buffer_out, stop=False, start=out_start, end=out_end)
+        self.readfrom_into(address, buffer_in, stop=stop, start=in_start, end=in_end)
+        
+        if in_end is None:
+            in_end = len(buffer_in)
+        return in_end - in_start
+        
+    def write_then_readinto(self, out_buffer, in_buffer, *args, **kwargs):
+        """Alias for writeto_then_readfrom for compatibility"""
+        address = kwargs.get('address', 0)
+        out_start = kwargs.get('out_start', 0)
+        out_end = kwargs.get('out_end', None)
+        in_start = kwargs.get('in_start', 0)
+        in_end = kwargs.get('in_end', None)
+        stop = kwargs.get('stop', True)
+        
+        return self.writeto_then_readfrom(
+            address, out_buffer, in_buffer,
+            out_start=out_start, out_end=out_end,
+            in_start=in_start, in_end=in_end,
+            stop=stop
+        )
+    
+    def write(self, buf, *args, **kwargs):
+        """Simulate writing bytes to I2C device"""
+        address = kwargs.get('address', 0)
+        start = kwargs.get('start', 0)
+        end = kwargs.get('end', None)
+        stop = kwargs.get('stop', True)
+        return self.writeto(address, buf, stop=stop, start=start, end=end)
+    
+    def readinto(self, buf, *args, **kwargs):
+        """Simulate reading bytes from I2C device"""
+        address = kwargs.get('address', 0)
+        start = kwargs.get('start', 0)
+        end = kwargs.get('end', None)
+        stop = kwargs.get('stop', True)
+        return self.readfrom_into(address, buf, stop=stop, start=start, end=end)
+
 class SimulatedServo:
     def __init__(self, channel=0, debug=False):
         self.channel = channel
@@ -50,7 +141,36 @@ class ServoTable:
         self._stop = False  # Simple flag for stopping path following
         self.inverted = inverted  # Whether servo movement should be inverted
     
-    
+    def correct_angle(self, angle):
+        """
+        Corrects the angle value to account for non-linear servo behavior.
+        For angles below 90 degrees:
+        - 30 degrees should actually move to 60 degrees
+        - 60 degrees should actually move to 75 degrees
+        - Values in between are interpolated
+        - 90 degrees and above remain unchanged
+        
+        Args:
+            angle: The input angle in degrees
+            
+        Returns:
+            The corrected angle in degrees
+        """
+        if angle >= 90:
+            return angle
+            
+        # Non-linear mapping for angles below 90
+        if angle <= 60:
+            # Linear mapping from [30, 60] to [45, 75]
+            # Map range [30, 60] to [0, 1] then to [45, 75]
+            normalized = (angle - 30) / 30
+            return 45 + normalized * 30
+        else:
+            # Linear mapping from [60, 90] to [75, 90]
+            # Map range [60, 90] to [0, 1] then to [75, 90]
+            normalized = (angle - 60) / 30
+            return 75 + normalized * 15
+
     def _execute_move(self, target_angle, force_smooth=True):
         """Execute the actual servo movement
         
@@ -85,7 +205,8 @@ class ServoTable:
             angle = start_angle + (target_angle - start_angle) * smooth_ratio
             # Invert angle if needed
             if self.inverted:
-                angle = 180 - angle
+                angle = 180 - angle 
+            angle = self.correct_angle(angle)
             # For real servos, just set the angle directly
             if isinstance(self.kit, ServoKit):
                 self.kit.servo[self.channel].angle = float(angle)
@@ -126,7 +247,7 @@ class ServoTable:
         for i in range(1, steps + 1):
             ratio = i / steps
             angle = self.center + (target_angle - self.center) * ratio
-            self.kit.servo[self.channel].angle = angle
+            self.kit.servo[self.channel].angle = self.correct_angle(angle)
             time.sleep(delay)
 
     def follow_path(self, path, delay=0.05):
@@ -135,7 +256,7 @@ class ServoTable:
         for angle in path:
             if self._stop:
                 break
-            self.kit.servo[self.channel].angle = angle
+            self.kit.servo[self.channel].angle = self.correct_angle(angle)
             self.last_position = angle
             time.sleep(delay)
             
