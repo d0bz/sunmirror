@@ -10,15 +10,15 @@ from plyer import notification
 REMOTE_USER = "pi"
 #REMOTE_HOST = "192.168.1.105"
 REMOTE_HOST = "10.35.113.70"
-REMOTE_HOST = "192.168.7.2"
+REMOTE_HOST = "192.168.4.1"
 REMOTE_PATH = "/home/pi/sunmirror"
 WATCH_PATH = "./"
 INCLUDE_EXTENSIONS = {".py", ".txt", ".json", ".html"}  # only sync these file types (optional)
 
 class SCPSyncHandler(FileSystemEventHandler):
     def on_modified(self, event):
-        #if event.is_directory:
-        #    return
+        if event.is_directory:
+            return
 
         filepath = event.src_path
         _, ext = os.path.splitext(filepath)

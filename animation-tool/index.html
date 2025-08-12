@@ -570,12 +570,12 @@
         <label>Triangle angle:</label>
         <div class="angle-buttons-group">
           <div class="angle-input-group">
-            <input type="number" id="custom-angle-1" min="10" max="170" value="20" class="angle-input">
+            <input type="number" id="custom-angle-1" min="60" max="130" value="60" class="angle-input">
             <button id="angle-20" class="angle-btn">°</button>
           </div>
           <button id="angle-90" class="angle-btn">90°</button>
           <div class="angle-input-group">
-            <input type="number" id="custom-angle-2" min="10" max="170" value="160" class="angle-input">
+            <input type="number" id="custom-angle-2" min="60" max="130" value="130" class="angle-input">
             <button id="angle-160" class="angle-btn">°</button>
           </div>
         </div>
@@ -819,10 +819,10 @@
   
   // Default angle values
   const DEFAULT_ANGLE = 90;
-  const DEFAULT_ANGLE_1 = 20;
-  const DEFAULT_ANGLE_2 = 160;
-  const MIN_ANGLE = 10;
-  const MAX_ANGLE = 170;
+  const DEFAULT_ANGLE_1 = 60;
+  const DEFAULT_ANGLE_2 = 130;
+  const MIN_ANGLE = 60;
+  const MAX_ANGLE = 130;
   
   // Track Ctrl key state and touch state
   let isCtrlPressed = false;
@@ -1307,7 +1307,7 @@
       };
       
       // Send the data to the server
-      const response = await fetch('http://localhost/play_animation', {
+      const response = await fetch('http://192.168.4.1/play_animation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1345,7 +1345,7 @@
     
     try {
       // Call the kill_animation endpoint
-      const response = await fetch('http://localhost/kill_animation');
+      const response = await fetch('http://192.168.4.1/kill_animation');
       const result = await response.json();
       
       if (!response.ok) {
@@ -1386,7 +1386,7 @@
     
     try {
       // Send shutdown command to the server
-      const response = await fetch('http://localhost/shutdown', {
+      const response = await fetch('http://192.168.4.1/shutdown', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -137,7 +137,6 @@ class ServoTable:
         self.speed_ms = speed_ms  # Time in milliseconds to move through full amplitude
         self.debug = debug
         self.total_movement_time = 0  # For measuring performance
-        self.movement_count = 0
         self._stop = False  # Simple flag for stopping path following
         self.inverted = inverted  # Whether servo movement should be inverted
     
@@ -156,20 +155,30 @@ class ServoTable:
         Returns:
             The corrected angle in degrees
         """
+        # Start with the original angle
+        normalized_angle = angle
+        
+        # Angles 90 and above remain unchanged
         if angle >= 90:
-            return angle
-            
-        # Non-linear mapping for angles below 90
-        if angle <= 60:
-            # Linear mapping from [30, 60] to [45, 75]
-            # Map range [30, 60] to [0, 1] then to [45, 75]
-            normalized = (angle - 30) / 30
-            return 45 + normalized * 30
-        else:
-            # Linear mapping from [60, 90] to [75, 90]
-            # Map range [60, 90] to [0, 1] then to [75, 90]
+            normalized_angle = angle
+        # Angles between 60 and 90 are mapped to 75-90
+        elif angle > 60 and angle < 90:
             normalized = (angle - 60) / 30
-            return 75 + normalized * 15
+            normalized_angle = 75 + normalized * 15
+        # Angles between 30 and 60 are mapped to 45-75
+        elif angle >= 30 and angle <= 60:
+            normalized = (angle - 30) / 30
+            normalized_angle = 45 + normalized * 30
+        # Angles below 30 need special handling
+        elif angle < 30:
+            # Linear mapping for angles below 30
+            normalized = (angle) / 30
+            normalized_angle = normalized * 45
+        
+        if self.debug:
+            print(f"DEBUG - normalized angle from={angle} to={normalized_angle}")
+
+        return normalized_angle
 
     def _execute_move(self, target_angle, force_smooth=True):
         """Execute the actual servo movement
@@ -225,11 +234,9 @@ class ServoTable:
         
         end_time = time.time()
         self.total_movement_time += (end_time - start_time)
-        self.movement_count += 1
         
-        if self.debug and self.movement_count % 10 == 0:  # Print stats every 10 movements
-            avg_time = self.total_movement_time / self.movement_count
-            print(f"[PERF] Average movement time: {avg_time*1000:.2f}ms over {self.movement_count} movements")
+        if self.debug:
+            print(f"[PERF] Average movement time: {self.total_movement_time*1000:.2f}ms")
             
     def move_to_smooth(self, target_angle):
         """Move to target angle with forced smooth movement"""
@@ -238,8 +245,7 @@ class ServoTable:
         
         end_time = time.time()
         self.total_movement_time += (end_time - start_time)
-        self.movement_count += 1
-
+        
     def move_to_start(self, target_angle, steps=10, delay=0.05):
         """
         Smoothly moves from center to the target angle.
@@ -263,11 +269,9 @@ class ServoTable:
         # Track performance for path following
         end_time = time.time()
         self.total_movement_time += (end_time - start_time)
-        self.movement_count += 1
         
-        if self.debug and self.movement_count % 10 == 0:
-            avg_time = self.total_movement_time / self.movement_count
-            print(f"[PERF] Average movement time: {avg_time*1000:.2f}ms over {self.movement_count} movements")
+        if self.debug:
+            print(f"[PERF] Average movement time: {self.total_movement_time*1000:.2f}ms")
 
     def stop(self):
         self._stop = True
@@ -351,10 +355,12 @@ class MainController(MovementGenerator):
         except Exception as e:
             if self.debug:
                 print(f"[ERROR] Failed to center mirrors: {e}")
-
     
     def interpolate_servo_moves(self, target_angles, steps=20, delay=0.02):
         current_angles = {name: table.last_position for name, table in self.tables.items()}
+
+        if self.debug:
+            print(f"[INFO] interpolate_servo_moves {steps} " )
         
         for step in range(1, steps + 1):
             ratio = step / steps
@@ -369,7 +375,7 @@ class MainController(MovementGenerator):
                         angle = 180 - angle
                     table.kit.servo[table.channel].angle = angle
             #time.sleep(delay)
-        
+
         for name, table in self.tables.items():
             if name in target_angles:
                 table.last_position = target_angles[name]

@@ -322,7 +322,7 @@ class MovementGenerator:
         Returns:
             List of frames, where each frame is a dict mapping table names to angles
         """
-        if not frames_data or len(frames_data) < 2:
+        if not frames_data or len(frames_data) < 1:
             return []
             
         # Extract table names from the first frame

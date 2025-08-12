@@ -112,7 +112,7 @@ def setup_mirrors(controller):
         inverted = logical_channel in INVERTED_SERVOS
             
         # Add the table with the mapped channel number (0-based)
-        print(name, logical_channel, servo_num-1)
+        #print(name, logical_channel, servo_num-1)
 
         controller.add_table(name, channel=servo_num-1, speed_ms=SPEED_MS, inverted=inverted)
     
@@ -205,7 +205,6 @@ if __name__ == "__main__":
     debug = args.debug  # Set to True to enable debug prints
     simulation = args.simulation
     
-    print("Starting mirror simulation...")
     # Initialize controller with enough channels for all servos (54 mirrors * 1 channel each)
     controller = MainController(simulation=simulation, debug=debug)
     print("Controller initialized, setting up mirrors...")
@@ -218,7 +217,7 @@ if __name__ == "__main__":
     
     center_angle = 90.0  # Ensure it's a single float value
 
-    def stop_signal_handler():
+    def stop_signal_handler(_, __):
         print("\n[INFO] Smoothly centering all mirrors...")
         try:
             controller.cleanup()
@@ -227,37 +226,40 @@ if __name__ == "__main__":
         print("Goodbye!")
         exit(0)
 
-        
+
     # Register the signal handlers
-    signal.signal(signal.SIGINT, stop_signal_handler)   # Ctrl+C
-    signal.signal(signal.SIGTERM, stop_signal_handler)  # kill command
+    #signal.signal(signal.SIGINT, stop_signal_handler)   # Ctrl+C
+    #signal.signal(signal.SIGTERM, stop_signal_handler)  # kill command
     
     # If a file is provided, load and play it
     if args.file:
         # If loop flag is set, keep playing the animation in a loop
-        if args.loop:
-            print(f"Running animation file {args.file} in continuous loop mode. Press Ctrl+C to stop.")
-            try:
+        try:
+            if args.loop:
+                print(f"Running animation file {args.file} in continuous loop mode. Press Ctrl+C to stop.")
                 while True:
                     success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
                     if not success:
                         print("Error playing animation, exiting loop.")
                         sys.exit(1)
-            except KeyboardInterrupt:
-                print("\nLoop interrupted by user. Centering all mirrors before exit...")
-                # Center all mirrors before exiting
-                controller.cleanup()
-                sys.exit(0)
-        else:
-            # Play once and exit
-            success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
-            if success:
-                # Center all mirrors before exiting
-                print("Centering all mirrors before exit...")
-                controller.cleanup()
-                sys.exit(0)
             else:
-                sys.exit(1)
+                # Play once and exit
+                success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
+                if success:
+                    # Center all mirrors before exiting
+                    print("Centering all mirrors before exit...")
+                    controller.cleanup()
+                    sys.exit(0)
+                else:
+                    sys.exit(1)
+        except KeyboardInterrupt:
+            print("\n[INFO] Ctrl+C detected, stopping...")
+            stop_signal_handler(None, None)
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            controller.cleanup()
+            sys.exit(0)
+
     
     try:
         print("\nAvailable commands:")
@@ -342,6 +344,9 @@ if __name__ == "__main__":
                 )
                 #print(sync_path)
                 controller.play_frame_path(sync_path)
+            elif cmd == 'center':
+                print("Centering all")
+                controller.cleanup()
             elif cmd == 'seqwave':
                 print("Playing synchronized inout path...")
                 # Generate and play a simple in-out movement for all mirrors
@@ -454,5 +459,6 @@ if __name__ == "__main__":
         # Center all mirrors
     except KeyboardInterrupt:
         print("\n[INFO] Ctrl+C detected, stopping...")
+        stop_signal_handler(None, None)
     finally:
-        stop_signal_handler()
+        stop_signal_handler(None, None)

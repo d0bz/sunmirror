@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sun Mirror API Documentation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        .card {
+            background: #f9f9f9;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .btn {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background: #2980b9;
+        }
+        .endpoint {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .method {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .get {
+            background-color: #61affe;
+            color: white;
+        }
+        .post {
+            background-color: #49cc90;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sun Mirror Animation API</h1>
+    
+    <div class="card">
+        <h2>API Documentation</h2>
+        <p>This page provides documentation for the Sun Mirror Animation API. Use the Swagger UI to interactively test the API endpoints.</p>
+        <a href="/swagger-ui.html" class="btn">Open Swagger UI</a>
+    </div>
+    
+    <div class="card">
+        <h2>Available Endpoints</h2>
+        
+        <div class="endpoint">
+            <span class="method post">POST</span>
+            <strong>/play_animation</strong>
+            <p>Play an animation on the Sun Mirror. Accepts animation frames and loop parameter.</p>
+        </div>
+        
+        <div class="endpoint">
+            <span class="method get">GET</span>
+            <strong>/kill_animation</strong>
+            <p>Stop any currently running animation.</p>
+        </div>
+        
+        <div class="endpoint">
+            <span class="method post">POST</span>
+            <strong>/shutdown</strong>
+            <p>Shutdown the animation server.</p>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Quick Links</h2>
+        <ul>
+            <li><a href="/">Animation Tool Home</a></li>
+            <li><a href="/swagger-ui.html">Swagger UI</a></li>
+            <li><a href="/swagger.json">Raw API Specification (JSON)</a></li>
+        </ul>
+    </div>
+</body>
+</html>
