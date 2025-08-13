@@ -47,18 +47,13 @@ python main.py
 
 ### Images
 
-![Installation Overview](images/installation_overview.jpg)
+![Installation Overview](images/215A9181.CR3.jpg)
 *Full view of the mirror installation with all 54 triangular mirrors*
 
-![Wave Animation](images/wave_animation.jpg)
-*Mirrors during wave animation sequence*
-
-![Mirror Detail](images/mirror_detail.jpg)
+![Mirror Detail](images/215A9195.CR3.jpg)
 *Close-up of individual triangular mirrors showing reflection detail*
 
 ### Video
 
-[![Mirror Universes Installation](images/video_thumbnail.jpg)](https://youtu.be/mirror-universes-demo)
+[![Mirror Universes Installation](images/215A9195.CR3.jpg)](https://drive.google.com/file/d/19RAJ3am_T07Rodu_74JJLM20cEBN8nMh/view?fbclid=IwY2xjawMJFElleHRuA2FlbQIxMABicmlkETFTT3R6NHNMNW1KazlPQWNZAR4zTPX6x1mj9gyFzKH4-K2Woc0Dq1B5IQ8ib722YHcj0DwXNxMhHPrqF8Q9xg_aem_qBE1fpnqFMe8xJx90wKDSw)
 *Click to watch the full demonstration video*
-
-> Note: Replace the placeholder images and video links with your actual media files
