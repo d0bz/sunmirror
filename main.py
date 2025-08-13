@@ -1,12 +1,10 @@
 # main.py
-import threading
 import argparse
 import json
 import sys
 from servo_controller import MainController
 from movement_generator import MovementGenerator
 import time
-import signal
 
 # Mapping from servo number to ring position (1-based indexing)
 SERVO_TO_POSITION = {

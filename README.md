@@ -20,7 +20,9 @@ pip install adafruit-circuitpython-servokit
 
 ## Running
 
-1. Start the program:
+### Command Line Interface
+
+1. Start the program directly:
 ```bash
 python main.py
 ```
@@ -34,6 +36,32 @@ python main.py
 - `list` - Show all mirrors
 - `quit` - Exit
 
+### Animation Tool Interface
+
+1. Start the web-based animation tool:
+```bash
+cd animation-tool
+python server.py
+```
+
+2. Access the interface:
+- Open a web browser and navigate to `http://localhost` or `http://[raspberry-pi-ip]`
+- For Raspberry Pi, the interface automatically starts in fullscreen mode
+
+3. Interface features:
+- Visual triangle selection for creating animations
+- Multiple frames with adjustable angles
+- Animation playback with speed control
+- Import/export animations as JSON
+- Direct control of the physical mirrors through main.py
+
+4. Creating animations:
+- Select triangles by clicking or using multi-select with Ctrl/Cmd key
+- Set angles using the angle controls (default: 60°, 90°, 130°)
+- Add frames to create animation sequences
+- Preview animations in the interface
+- Click "Play on SunMirror" to send to physical installation
+
 ## Configuration
 - 54 total mirrors in 3 rings:
   - Inner: 6 mirrors
@@ -46,6 +74,9 @@ python main.py
 ## Results
 
 ### Images
+
+![Animations tool](images/image.png)
+*Animation tool interface*
 
 ![Installation Overview](images/215A9181.CR3.jpg)
 *Full view of the mirror installation with all 54 triangular mirrors*
