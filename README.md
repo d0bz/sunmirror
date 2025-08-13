@@ -42,3 +42,23 @@ python main.py
 - Default speed: 11ms per degree
 - Wave amplitude: 45 degrees
 - Center position: 90 degrees
+
+## Results
+
+### Images
+
+![Installation Overview](images/installation_overview.jpg)
+*Full view of the mirror installation with all 54 triangular mirrors*
+
+![Wave Animation](images/wave_animation.jpg)
+*Mirrors during wave animation sequence*
+
+![Mirror Detail](images/mirror_detail.jpg)
+*Close-up of individual triangular mirrors showing reflection detail*
+
+### Video
+
+[![Mirror Universes Installation](images/video_thumbnail.jpg)](https://youtu.be/mirror-universes-demo)
+*Click to watch the full demonstration video*
+
+> Note: Replace the placeholder images and video links with your actual media files
