@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Global variables to track the current animation process
 current_process = None
 PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'animation_pid.txt')
+SHUTDOWN_IN_PROGRESS = False
 
 class AnimationServer(SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -424,12 +425,115 @@ class AnimationServer(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
+def play_animation_from_file(animation_file, wait_for_completion=False):
+    """Play an animation from a JSON file"""
+    animation_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), animation_file)
+    if os.path.exists(animation_path):
+        print(f"Playing animation from {animation_path}...")
+        try:
+            # Read the animation data
+            with open(animation_path, 'r') as f:
+                animation_data = json.load(f)
+            
+            # Use absolute path for Raspberry Pi deployment
+            main_py_path = '/home/pi/sunmirror/main.py'
+            if not os.path.exists(main_py_path):
+                # Fall back to relative path for development
+                main_py_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'main.py')
+            
+            # Create a temporary file to store the animation data
+            temp_fd, temp_filename = tempfile.mkstemp(suffix='.json')
+            with os.fdopen(temp_fd, 'w') as temp_file:
+                json.dump(animation_data, temp_file)
+            
+            # Execute main.py with the temporary file
+            cmd = [sys.executable, main_py_path, '--file', temp_filename, '--step-size', '1.0']
+            
+            # Execute the command in a separate process
+            global current_process
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=os.setsid,  # Use process group for easier termination
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Set working directory to project root
+            )
+            current_process = process
+            
+            # Save the PID to file
+            with open(PID_FILE, 'w') as f:
+                f.write(str(process.pid))
+                
+            print(f"Started animation with PID: {process.pid}")
+            
+            # If wait_for_completion is True, wait for the process to complete
+            if wait_for_completion:
+                process.wait()
+                print(f"Animation completed with return code: {process.returncode}")
+                
+            return process
+        except Exception as e:
+            print(f"Error playing animation: {e}")
+            traceback.print_exc()
+            return None
+    else:
+        print(f"Animation file not found: {animation_path}")
+        return None
+
+def play_startup_animation():
+    """Play the start-wave.json animation on server startup"""
+    return play_animation_from_file('start-wave.json')
+
+def play_shutdown_animation():
+    """Play the shutdown-wave.json animation on server shutdown"""
+    # Wait for completion since we're shutting down
+    return play_animation_from_file('shutdown-wave.json', wait_for_completion=True)
+
+def handle_shutdown_signal(signum, frame):
+    """Handle shutdown signals by playing shutdown animation"""
+    global SHUTDOWN_IN_PROGRESS
+    
+    if SHUTDOWN_IN_PROGRESS:
+        return  # Avoid handling the signal multiple times
+    
+    SHUTDOWN_IN_PROGRESS = True
+    print(f"\nReceived shutdown signal {signum}. Playing shutdown animation...")
+    
+    # Kill any existing animation process
+    if current_process and current_process.poll() is None:
+        try:
+            os.killpg(os.getpgid(current_process.pid), signal.SIGTERM)
+            print(f"Terminated existing animation process with PID: {current_process.pid}")
+        except Exception as e:
+            print(f"Error terminating existing process: {e}")
+    
+    # Play shutdown animation and wait for it to complete
+    play_shutdown_animation()
+    
+    print("Shutdown animation completed. Exiting...")
+    sys.exit(0)
+
 def run_server(port=80):
     """Run the animation server on the specified port"""
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, handle_shutdown_signal)  # Ctrl+C
+    signal.signal(signal.SIGTERM, handle_shutdown_signal)  # kill command
+    
+    # Play startup animation
+    play_startup_animation()
+    
     server_address = ('', port)
     httpd = HTTPServer(server_address, AnimationServer)
     print(f"Starting animation server on port {port}...")
-    httpd.serve_forever()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        # This should be caught by the signal handler, but just in case
+        if not SHUTDOWN_IN_PROGRESS:
+            handle_shutdown_signal(signal.SIGINT, None)
+    finally:
+        if not SHUTDOWN_IN_PROGRESS:
+            handle_shutdown_signal(signal.SIGTERM, None)
 
 if __name__ == '__main__':
     run_server()
