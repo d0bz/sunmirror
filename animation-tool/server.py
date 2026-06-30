@@ -20,6 +20,11 @@ current_process = None
 PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'animation_pid.txt')
 SHUTDOWN_IN_PROGRESS = False
 
+# Shared animation state - controlled by both the physical toggle button and the web UI
+animation_running = False          # True when an animation loop is active
+current_animation_file = None      # Path to the animation JSON currently playing
+DEFAULT_LOOP_ANIMATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start-wave.json')
+
 class AnimationServer(SimpleHTTPRequestHandler):
     def do_GET(self):
         """Handle GET requests - serve static files or API documentation"""
@@ -134,11 +139,17 @@ class AnimationServer(SimpleHTTPRequestHandler):
                     
                     # For long-running animations, don't wait for completion
                     if loop:
+                        # Update shared state
+                        global animation_running, current_animation_file
+                        animation_running = True
+                        current_animation_file = None  # custom frames, not a named file
+
                         # Return immediately with process info
                         response_dict = {
                             'status': 'running',
                             'message': 'Animation started successfully',
-                            'pid': process.pid
+                            'pid': process.pid,
+                            'animation_running': True
                         }
                         
                         # Convert response dict to JSON string
@@ -223,6 +234,74 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 
                 # Write bytes to response
                 self.wfile.write(error_bytes)
+        elif self.path == '/toggle_animation':
+            """
+            Toggle the animation on/off.
+            When toggled ON  → start the default loop animation (or the file in the request body).
+            When toggled OFF → kill any running animation and move all motors to initial angle.
+            Body (optional JSON): { "file": "<path_to_animation_json>" }
+            """
+            global animation_running, current_animation_file
+            try:
+                # Try to read an optional body
+                content_length = int(self.headers.get('Content-Length', 0))
+                anim_file = DEFAULT_LOOP_ANIMATION
+                if content_length > 0:
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    body_data = json.loads(body)
+                    if 'file' in body_data:
+                        anim_file = body_data['file']
+
+                if animation_running:
+                    # ---- STOP ----
+                    self._kill_existing_process()
+                    animation_running = False
+                    current_animation_file = None
+                    response_dict = {
+                        'status': 'stopped',
+                        'message': 'Animation stopped and motors returning to initial angle',
+                        'animation_running': False
+                    }
+                else:
+                    # ---- START ----
+                    process = play_animation_from_file(
+                        full_path=anim_file,
+                        loop=True
+                    )
+                    if process:
+                        animation_running = True
+                        current_animation_file = anim_file
+                        response_dict = {
+                            'status': 'started',
+                            'message': 'Animation started',
+                            'animation_running': True,
+                            'pid': process.pid
+                        }
+                    else:
+                        response_dict = {
+                            'status': 'error',
+                            'message': 'Failed to start animation',
+                            'animation_running': False
+                        }
+
+                response_json = json.dumps(response_dict)
+                response_bytes = response_json.encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(response_bytes)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(response_bytes)
+            except Exception as e:
+                traceback.print_exc()
+                error_bytes = json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(error_bytes)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(error_bytes)
+
         elif self.path == '/shutdown':
             try:
                 # Get content length
@@ -389,12 +468,15 @@ class AnimationServer(SimpleHTTPRequestHandler):
         """Handle GET requests - serve static files or handle API endpoints"""
         # Check for kill endpoint
         if self.path == '/kill_animation':
+            global animation_running
             killed = self._kill_existing_process()
+            animation_running = False
             
             # Create response
             response_dict = {
                 'status': 'success' if killed else 'info',
-                'message': 'Animation process killed' if killed else 'No running animation found'
+                'message': 'Animation process killed' if killed else 'No running animation found',
+                'animation_running': animation_running
             }
             
             # Convert response dict to JSON string
@@ -413,6 +495,29 @@ class AnimationServer(SimpleHTTPRequestHandler):
             self.wfile.write(response_bytes)
             return
         
+        # Check for animation status endpoint
+        if self.path == '/animation_status':
+            global current_process
+            # Also reflect whether the subprocess is still alive
+            is_alive = (
+                animation_running
+                and current_process is not None
+                and current_process.poll() is None
+            )
+            response_dict = {
+                'animation_running': is_alive,
+                'animation_file': current_animation_file
+            }
+            response_json = json.dumps(response_dict)
+            response_bytes = response_json.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Content-Length', str(len(response_bytes)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(response_bytes)
+            return
+        
         # For all other paths, use the default handler
         self.path = self.path.split('?')[0]  # Remove query parameters
         return SimpleHTTPRequestHandler.do_GET(self)
@@ -425,9 +530,23 @@ class AnimationServer(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
-def play_animation_from_file(animation_file, wait_for_completion=False):
-    """Play an animation from a JSON file"""
-    animation_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), animation_file)
+def play_animation_from_file(animation_file=None, wait_for_completion=False, full_path=None, loop=False):
+    """Play an animation from a JSON file.
+    
+    Args:
+        animation_file: Filename relative to the server directory (optional).
+        wait_for_completion: If True, block until the process finishes.
+        full_path: Absolute path to the animation JSON. Takes precedence over animation_file.
+        loop: If True, pass --loop to main.py so the animation repeats indefinitely.
+    """
+    if full_path:
+        animation_path = full_path
+    elif animation_file:
+        animation_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), animation_file)
+    else:
+        print("play_animation_from_file: no file specified")
+        return None
+
     if os.path.exists(animation_path):
         print(f"Playing animation from {animation_path}...")
         try:
@@ -448,6 +567,8 @@ def play_animation_from_file(animation_file, wait_for_completion=False):
             
             # Execute main.py with the temporary file
             cmd = [sys.executable, main_py_path, '--file', temp_filename, '--step-size', '1.0']
+            if loop:
+                cmd.append('--loop')
             
             # Execute the command in a separate process
             global current_process
@@ -513,15 +634,85 @@ def handle_shutdown_signal(signum, frame):
     print("Shutdown animation completed. Exiting...")
     sys.exit(0)
 
+# ---------------------------------------------------------------------------
+# GPIO Button Handler (runs as a daemon thread inside the server process)
+# ---------------------------------------------------------------------------
+BUTTON_GPIO_PIN = 17        # BCM numbering – GPIO 17 = physical pin 11
+BUTTON_DEBOUNCE_MS = 300    # milliseconds
+
+def _do_toggle():
+    """Toggle animation state – same logic as the /toggle_animation endpoint."""
+    global animation_running, current_animation_file
+    if animation_running:
+        # Stop: kill process, motors will return to initial angle via main.py cleanup
+        if current_process and current_process.poll() is None:
+            try:
+                os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
+            except Exception as e:
+                print(f"[Button] Error killing process: {e}")
+        animation_running = False
+        current_animation_file = None
+        print("[Button] Animation stopped via physical button")
+    else:
+        # Start: play the default loop animation
+        process = play_animation_from_file(full_path=DEFAULT_LOOP_ANIMATION, loop=True)
+        if process:
+            animation_running = True
+            current_animation_file = DEFAULT_LOOP_ANIMATION
+            print(f"[Button] Animation started via physical button (PID {process.pid})")
+        else:
+            print("[Button] Failed to start animation")
+
+def _start_gpio_button_thread():
+    """Start a background daemon thread that monitors the physical toggle button."""
+    import threading
+
+    def gpio_thread():
+        try:
+            import RPi.GPIO as GPIO
+            GPIO.setmode(GPIO.BCM)
+            # Internal pull-up: button connects GPIO pin to GND when pressed
+            GPIO.setup(BUTTON_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            print(f"[Button] Listening on GPIO {BUTTON_GPIO_PIN} (BCM)")
+
+            def on_press(channel):
+                # Extra software debounce: wait and confirm pin is still LOW
+                time.sleep(BUTTON_DEBOUNCE_MS / 1000.0)
+                if GPIO.input(channel) == GPIO.LOW:
+                    _do_toggle()
+
+            GPIO.add_event_detect(
+                BUTTON_GPIO_PIN,
+                GPIO.FALLING,
+                callback=on_press,
+                bouncetime=BUTTON_DEBOUNCE_MS
+            )
+
+            # Keep the thread alive; GPIO callbacks fire in their own thread
+            while True:
+                time.sleep(1)
+
+        except ImportError:
+            print("[Button] RPi.GPIO not available – physical button disabled (dev mode)")
+        except Exception as e:
+            print(f"[Button] GPIO thread error: {e}")
+
+    t = threading.Thread(target=gpio_thread, name="gpio-button", daemon=True)
+    t.start()
+
+
 def run_server(port=80):
     """Run the animation server on the specified port"""
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, handle_shutdown_signal)  # Ctrl+C
     signal.signal(signal.SIGTERM, handle_shutdown_signal)  # kill command
-    
+
+    # Start the physical toggle button listener in the background
+    _start_gpio_button_thread()
+
     # Play startup animation
     play_startup_animation()
-    
+
     server_address = ('', port)
     httpd = HTTPServer(server_address, AnimationServer)
     print(f"Starting animation server on port {port}...")
