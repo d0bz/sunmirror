@@ -12,10 +12,64 @@ import datetime as dt
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs
 import tempfile
+import argparse
 
+
+# ── CLI: detect --simulation flag before the server starts ─────────────────
+_arg_parser = argparse.ArgumentParser(add_help=False)
+_arg_parser.add_argument('--simulation', action='store_true',
+                          help='Run without hardware (no servos, no GPIO)')
+_arg_parser.add_argument('--port', type=int, default=80)
+_known_args, _ = _arg_parser.parse_known_args()
+
+SIMULATION_MODE = _known_args.simulation
+SERVER_PORT     = _known_args.port
+
+if SIMULATION_MODE:
+    print("⚙️  SIMULATION MODE — no hardware required")
 
 # Add parent directory to path to access main.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# In simulation mode write a stub that replaces main.py
+_SIM_MAIN_PATH = os.path.join(tempfile.gettempdir(), 'sunmirror_sim_main.py')
+if SIMULATION_MODE:
+    _stub = '''#!/usr/bin/env python3
+"""Simulation stub – prints animation frames instead of moving servos."""
+import argparse, json, time, sys, signal
+
+ap = argparse.ArgumentParser()
+ap.add_argument('--file', required=True)
+ap.add_argument('--step-size', type=float, default=1.0)
+ap.add_argument('--loop', action='store_true')
+args = ap.parse_args()
+
+def run_once():
+    with open(args.file) as f:
+        frames = json.load(f)
+    for i, frame in enumerate(frames):
+        angles = frame.get('angles', frame)
+        values = list(angles.values())
+        mn = min(float(v) for v in values)
+        mx = max(float(v) for v in values)
+        bar_len = 40
+        bar = int((mx - mn) / 90 * bar_len)
+        print(f"\\r[SIM] frame {i+1:>3}/{len(frames)} | min={mn:5.1f} max={mx:5.1f}  |{\"█\"*bar:{bar_len}}|", end="", flush=True)
+        time.sleep(0.016)
+    print()
+
+signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
+if args.loop:
+    while True:
+        run_once()
+else:
+    run_once()
+'''
+    with open(_SIM_MAIN_PATH, 'w') as _f:
+        _f.write(_stub)
+    print(f"[SIM] Stub written to {_SIM_MAIN_PATH}")
 
 # Global variables to track the current animation process
 current_process = None
@@ -44,11 +98,52 @@ DEFAULT_LOOP_ANIMATION = ANIMATION_PRESETS[0]["file"]  # fallback / startup
 SCHEDULE_FILE = os.path.join(_SERVER_DIR, 'schedule.json')
 schedule_data = {
     "festival_start": None,   # ISO date string "YYYY-MM-DD"
+    "festival_end":   None,   # ISO date string "YYYY-MM-DD"
     "enabled": False,
-    "slots": []               # list of {id, day(0-3), start_minutes, end_minutes, animation_index}
+    "slots": []               # list of {id, day(0-N), start_minutes, end_minutes, animation_file}
 }
 schedule_enabled = False          # master on/off
 schedule_started_by_runner = False  # True when runner owns the current process
+
+# ---------------------------------------------------------------------------
+# Animation library
+# ---------------------------------------------------------------------------
+ANIMATIONS_DIR = os.path.join(_SERVER_DIR, 'animations')
+os.makedirs(ANIMATIONS_DIR, exist_ok=True)
+
+def _get_all_animations():
+    """Return unified list: built-in presets first, then user-saved animations.
+    Each entry: {index, name, file, is_preset, frame_count}"""
+    result = []
+    for i, p in enumerate(ANIMATION_PRESETS):
+        fc = 0
+        try:
+            with open(p['file']) as f:
+                fc = len(json.load(f))
+        except Exception:
+            pass
+        result.append({'index': i, 'name': p['name'], 'file': p['file'],
+                        'is_preset': True, 'frame_count': fc})
+
+    offset = len(ANIMATION_PRESETS)
+    try:
+        for fname in sorted(os.listdir(ANIMATIONS_DIR)):
+            if not fname.endswith('.json'):
+                continue
+            fpath = os.path.join(ANIMATIONS_DIR, fname)
+            name  = fname[:-5]  # strip .json
+            fc = 0
+            try:
+                with open(fpath) as f:
+                    fc = len(json.load(f))
+            except Exception:
+                pass
+            result.append({'index': offset, 'name': name, 'file': fpath,
+                            'is_preset': False, 'frame_count': fc})
+            offset += 1
+    except Exception as e:
+        print(f"[Animations] Error scanning directory: {e}")
+    return result
 
 class AnimationServer(SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -67,7 +162,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests to play animations"""
-        global current_process, animation_running, current_animation_file, current_animation_index
+        global current_process, animation_running, current_animation_file, current_animation_index, schedule_enabled, schedule_data, schedule_started_by_runner
         if self.path == '/play_animation':
             try:
                 # Get content length
@@ -91,8 +186,10 @@ class AnimationServer(SimpleHTTPRequestHandler):
                     print(f"Animation data saved to temporary file: {temp_filename}")
                     
                     # Execute main.py with the temporary file
-                    # Use absolute path for Raspberry Pi deployment
-                    main_py_path = '/home/pi/sunmirror/main.py'
+                    if SIMULATION_MODE:
+                        main_py_path = _SIM_MAIN_PATH
+                    else:
+                        main_py_path = '/home/pi/sunmirror/main.py'
                     cmd = [sys.executable, main_py_path, '--file', temp_filename, '--step-size', '1.0']
                     
                     # Add loop parameter if enabled
@@ -119,7 +216,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
                         
                         # Write command to log file
                         log_file.write(f"Command: {' '.join(cmd)}\n")
-                        log_file.write(f"Timestamp: {datetime.datetime.now().isoformat()}\n\n")
+                        log_file.write(f"Timestamp: {dt.datetime.now().isoformat()}\n\n")
                         log_file.flush()
                         
                         process = subprocess.Popen(
@@ -132,7 +229,6 @@ class AnimationServer(SimpleHTTPRequestHandler):
                         print(f"Process started with PID: {process.pid}")
                         
                         # Start threads to capture and log output
-                        import threading
                         
                         def log_output(stream, prefix):
                             for line in iter(stream.readline, b''):
@@ -264,9 +360,9 @@ class AnimationServer(SimpleHTTPRequestHandler):
             Toggle the animation on/off (long-press action).
             When toggled ON  → start the currently selected preset animation in a loop.
             When toggled OFF → kill any running animation (motors return to initial angle).
+            If the scheduler owned the process, it gives up control until the next slot boundary.
             """
             try:
-                # Ignore body – we always use the currently selected preset
                 content_length = int(self.headers.get('Content-Length', 0))
                 if content_length > 0:
                     self.rfile.read(content_length)  # drain
@@ -276,6 +372,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
                     self._kill_existing_process()
                     animation_running = False
                     current_animation_file = None
+                    schedule_started_by_runner = False  # user explicitly stopped it – scheduler backs off
                     response_dict = {
                         'status': 'stopped',
                         'message': 'Animation stopped and motors returning to initial angle',
@@ -291,6 +388,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
                     if process:
                         animation_running = True
                         current_animation_file = anim_file
+                        schedule_started_by_runner = False  # user owns this process
                         response_dict = {
                             'status': 'started',
                             'message': f"Animation started: {ANIMATION_PRESETS[current_animation_index]['name']}",
@@ -329,6 +427,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
             """
             Cycle to the next preset animation (short-press action).
             If the animation is currently running, restarts it with the new preset.
+            Clears scheduler ownership so the scheduler doesn't override the user's choice.
             """
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
@@ -339,11 +438,12 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 preset = ANIMATION_PRESETS[current_animation_index]
 
                 if animation_running:
-                    # Restart with new preset
+                    # Restart with new preset; user now owns the process
                     self._kill_existing_process()
                     process = play_animation_from_file(full_path=preset['file'], loop=True)
                     if process:
                         current_animation_file = preset['file']
+                        schedule_started_by_runner = False  # user made this choice
                     animation_running = bool(process)
 
                 response_dict = {
@@ -371,9 +471,72 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(error_bytes)
 
+        # POST /animations – save a new (or overwrite) user animation
+        elif self.path == '/animations':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                name   = body.get('name', '').strip()
+                frames = body.get('frames', [])
+                if not name:
+                    raise ValueError('Animation name is required')
+                # Sanitise filename
+                safe_name = ''.join(c if c.isalnum() or c in '-_ ' else '_' for c in name).strip()
+                fpath = os.path.join(ANIMATIONS_DIR, safe_name + '.json')
+                with open(fpath, 'w') as f:
+                    json.dump(frames, f, indent=2)
+                anims = _get_all_animations()
+                resp = json.dumps({'status': 'saved', 'name': safe_name,
+                                   'animations': anims}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(resp)
+                print(f"[Animations] Saved '{safe_name}' ({len(frames)} frames)")
+            except Exception as e:
+                traceback.print_exc()
+                err = json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(err)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(err)
+
+        # POST /animations/delete – remove a user animation
+        elif self.path == '/animations/delete':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                name  = body.get('name', '').strip()
+                fpath = os.path.join(ANIMATIONS_DIR, name + '.json')
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+                    deleted = True
+                else:
+                    deleted = False
+                anims = _get_all_animations()
+                resp = json.dumps({'status': 'ok', 'deleted': deleted,
+                                   'animations': anims}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                err = json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(err)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(err)
+
         # POST /schedule – save full schedule
         elif self.path == '/schedule':
-            global schedule_data, schedule_enabled
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(content_length).decode('utf-8')
@@ -381,6 +544,8 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 # Merge incoming fields
                 if 'festival_start' in incoming:
                     schedule_data['festival_start'] = incoming['festival_start']
+                if 'festival_end' in incoming:
+                    schedule_data['festival_end'] = incoming['festival_end']
                 if 'slots' in incoming:
                     schedule_data['slots'] = incoming['slots']
                 if 'enabled' in incoming:
@@ -409,7 +574,6 @@ class AnimationServer(SimpleHTTPRequestHandler):
 
         # POST /schedule/enable  and  /schedule/disable
         elif self.path in ('/schedule/enable', '/schedule/disable'):
-            global schedule_enabled
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
                 if content_length > 0:
@@ -653,9 +817,42 @@ class AnimationServer(SimpleHTTPRequestHandler):
             self.wfile.write(response_bytes)
             return
 
+        # GET /animations – list all animations (presets + user-saved)
+        if self.path == '/animations':
+            anims = _get_all_animations()
+            resp = json.dumps({'animations': anims}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+
+        # GET /animations/frames/<name> – return full frames of any animation (preset or user)
+        if self.path.startswith('/animations/frames/'):
+            from urllib.parse import unquote
+            anim_name = unquote(self.path[len('/animations/frames/'):])
+            # Search across all animations (presets first, then user-saved)
+            all_anims = _get_all_animations()
+            match = next((a for a in all_anims if a['name'] == anim_name), None)
+            if not match or not os.path.isfile(match['file']):
+                self.send_response(404)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                return
+            with open(match['file']) as f:
+                data = f.read().encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         # GET /schedule – return full schedule + active slot
         if self.path == '/schedule':
-            global schedule_data, schedule_enabled
             now = dt.datetime.now()
             active = _get_active_slot()
             payload = {
@@ -714,12 +911,15 @@ def play_animation_from_file(animation_file=None, wait_for_completion=False, ful
             # Read the animation data
             with open(animation_path, 'r') as f:
                 animation_data = json.load(f)
-            
-            # Use absolute path for Raspberry Pi deployment
-            main_py_path = '/home/pi/sunmirror/main.py'
-            if not os.path.exists(main_py_path):
-                # Fall back to relative path for development
-                main_py_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'main.py')
+
+            # Choose the right main script
+            if SIMULATION_MODE:
+                main_py_path = _SIM_MAIN_PATH
+            else:
+                main_py_path = '/home/pi/sunmirror/main.py'
+                if not os.path.exists(main_py_path):
+                    # Fall back to relative path for development
+                    main_py_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'main.py')
             
             # Create a temporary file to store the animation data
             temp_fd, temp_filename = tempfile.mkstemp(suffix='.json')
@@ -848,7 +1048,6 @@ def _do_next_animation():
 
 def _start_gpio_button_thread():
     """Start a background daemon thread that monitors the physical toggle button."""
-    import threading
 
     def gpio_thread():
         try:
@@ -954,22 +1153,32 @@ def _schedule_tick():
 
     slot = _get_active_slot()
     if slot:
-        target_idx = slot.get('animation_index', 0)
-        preset = ANIMATION_PRESETS[target_idx]
-        if not animation_running or current_animation_index != target_idx:
-            # Need to start or switch preset
+        # Resolve which file to play — prefer animation_file, fall back to index
+        anim_file = slot.get('animation_file')
+        if not anim_file:
+            all_anims = _get_all_animations()
+            idx = slot.get('animation_index', 0)
+            if 0 <= idx < len(all_anims):
+                anim_file = all_anims[idx]['file']
+                anim_name = all_anims[idx]['name']
+            else:
+                return  # bad index, skip
+        else:
+            anim_name = os.path.splitext(os.path.basename(anim_file))[0]
+
+        if not animation_running or current_animation_file != anim_file:
+            # Need to start or switch
             if animation_running:
                 try:
                     os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
                 except Exception:
                     pass
-            process = play_animation_from_file(full_path=preset['file'], loop=True)
+            process = play_animation_from_file(full_path=anim_file, loop=True)
             if process:
                 animation_running = True
-                current_animation_file = preset['file']
-                current_animation_index = target_idx
+                current_animation_file = anim_file
                 schedule_started_by_runner = True
-                print(f"[Schedule] Started: {preset['name']}")
+                print(f"[Schedule] Started: {anim_name}")
     else:
         # No active slot → stop only if we started it
         if animation_running and schedule_started_by_runner:
@@ -996,8 +1205,10 @@ def _start_schedule_thread():
     print("[Schedule] Runner started (30 s interval)")
 
 
-def run_server(port=80):
+def run_server(port=None):
     """Run the animation server on the specified port"""
+    port = port or SERVER_PORT
+
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, handle_shutdown_signal)  # Ctrl+C
     signal.signal(signal.SIGTERM, handle_shutdown_signal)  # kill command
@@ -1005,18 +1216,22 @@ def run_server(port=80):
     # Load persisted schedule
     _load_schedule()
 
-    # Start the physical toggle button listener in the background
-    _start_gpio_button_thread()
+    if SIMULATION_MODE:
+        print("[SIM] GPIO button disabled (no hardware)")
+        print("[SIM] Startup animation skipped (no hardware)")
+    else:
+        # Start the physical toggle button listener in the background
+        _start_gpio_button_thread()
+        # Play startup animation
+        play_startup_animation()
 
-    # Start the schedule runner
+    # Start the schedule runner (works in both modes)
     _start_schedule_thread()
-
-    # Play startup animation
-    play_startup_animation()
 
     server_address = ('', port)
     httpd = HTTPServer(server_address, AnimationServer)
-    print(f"Starting animation server on port {port}...")
+    mode_tag = " [SIMULATION]" if SIMULATION_MODE else ""
+    print(f"Starting animation server on port {port}{mode_tag}...")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

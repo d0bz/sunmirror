@@ -10,9 +10,12 @@
     font-family: system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
     margin: 0;
     display: flex;
+    flex-direction: column;
     min-height: 100vh;
     background: #f5f5f7;
     overflow-x: hidden;
+    padding-top: 44px;  /* room for fixed tab bar */
+    box-sizing: border-box;
   }
   
   @media (max-width: 768px) {
@@ -59,8 +62,8 @@
   
   @media (min-width: 769px) {
     .panel {
-      width: 330px;
-      max-width: 330px;
+      width: 400px;
+      max-width: 400px;
       order: 0;
     }
   }
@@ -195,7 +198,8 @@
   .save-container {
     display: flex;
     align-items: center;
-    gap: 0;
+    flex-wrap: wrap;
+    gap: 2px;
     margin-left: auto;
   }
   
@@ -204,7 +208,7 @@
     border: 1px solid #ccc;
     border-radius: 4px;
     font-size: 0.9rem;
-    width: 130px;
+    width: 110px;
   }
   
   #play-on-mirrors {
@@ -579,7 +583,7 @@
     ">🗓 Schedule Manager</button>
   </nav>
   <!-- ── Editor view (existing content) ──────────────────── -->
-  <div id="view-editor" style="padding-top: 44px;">
+  <div id="view-editor" style="flex:1; display:flex; flex-direction:row; min-height:calc(100vh - 44px);">
   <div id="app">
     <button id="fullscreen-btn" style="position: absolute; top: 10px; right: 10px; z-index: 1000; background: #2563eb; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer;">
       <i class="fas fa-expand"></i> Fullscreen
@@ -665,8 +669,10 @@
           </div>
           <button id="play-on-mirrors" title="Play on mirrors" style="margin: 0; border-radius: 4px 0 0 4px;"><i class="fas fa-play-circle"></i></button>
           <button id="stop-mirrors" title="Stop animation on mirrors" style="background:red;margin: 0; border-radius: 0;"><i class="fas fa-stop"></i></button>
-          <button id="save" title="Save animation" style="margin: 0; border-radius: 0;"><i class="fas fa-save"></i></button>
-          <button id="import" title="Import animation" style="margin: 0; border-radius: 0 4px 4px 0;"><i class="fas fa-file-import"></i></button>
+          <button id="save-to-server" title="Save animation to server library" style="margin: 0; border-radius: 0; background: #16a34a; color: #fff; border-color: #15803d;"><i class="fas fa-cloud-upload-alt"></i> Save</button>
+          <button id="open-library" title="Animation Library" style="margin: 0; border-radius: 0 4px 4px 0; background: #2563eb; color: #fff; border-color: #1d4ed8;"><i class="fas fa-film"></i> Library</button>
+          <button id="save" style="display:none;"></button>
+          <button id="import" title="Import animation from file" style="display:none;"><i class="fas fa-file-import"></i></button>
           <input type="file" id="import-file" accept=".json" style="display: none;">
         </div>
       </div>
@@ -739,6 +745,9 @@
 
 
 <script>
+// Resolve API base from current page origin so it works both on Pi and localhost
+const API_BASE = window.location.origin;
+
 (function(){
 
   // Fullscreen button functionality
@@ -1393,8 +1402,36 @@
     downloadLink.click();
     document.body.removeChild(downloadLink);
   });
-  
-  // Play on Mirrors button
+
+  // ── Expose frames to the library module via custom events ────────────────
+  // 'collect-animation-frames': fills detail.frames with current export data
+  document.addEventListener('collect-animation-frames', (e) => {
+    e.detail.frames = prepareFramesForExport();
+  });
+
+  // 'load-animation-frames': loads frames from library into the editor
+  document.addEventListener('load-animation-frames', (e) => {
+    const importedData = e.detail.frames;
+    if (!Array.isArray(importedData) || !importedData.length) return;
+    // Clear existing frames
+    frames.length = 0;
+    framesContainer.innerHTML = '';
+    importedData.forEach(frameData => {
+      const newFrame = { selected: new Set(), angles: {} };
+      if (frameData.angles) {
+        newFrame.angles = frameData.angles;
+        Object.entries(frameData.angles).forEach(([index, angle]) => {
+          if (angle !== DEFAULT_ANGLE) newFrame.selected.add(index);
+        });
+      }
+      frames.push(newFrame);
+      addFrameElement(frames.length - 1);
+    });
+    currentFrameIndex = 0;
+    updateFrameDisplay();
+    selectedCountEl.textContent = frames[0].selected.size;
+  });
+
   const playOnMirrorsBtn = document.getElementById('play-on-mirrors');
   const stopMirrorsBtn = document.getElementById('stop-mirrors');
   const loopCheckbox = document.getElementById('loop-checkbox');
@@ -1415,7 +1452,7 @@
       };
       
       // Send the data to the server
-      const response = await fetch('http://192.168.4.1/play_animation', {
+      const response = await fetch(API_BASE + '/play_animation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1453,7 +1490,7 @@
     
     try {
       // Call the kill_animation endpoint
-      const response = await fetch('http://192.168.4.1/kill_animation');
+      const response = await fetch(API_BASE + '/kill_animation');
       const result = await response.json();
       
       if (!response.ok) {
@@ -1494,7 +1531,7 @@
     
     try {
       // Send shutdown command to the server
-      const response = await fetch('http://192.168.4.1/shutdown', {
+      const response = await fetch(API_BASE + '/shutdown', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2134,7 +2171,7 @@
   /** Fetch current state and apply */
   async function refreshToggleState() {
     try {
-      const resp = await fetch('http://192.168.4.1/animation_status');
+      const resp = await fetch(API_BASE + '/animation_status');
       if (resp.ok) applyFullState(await resp.json());
     } catch (_) {}
   }
@@ -2143,7 +2180,7 @@
   async function callEndpoint(path) {
     toggleBtn.classList.add('anim-busy');
     try {
-      const resp = await fetch('http://192.168.4.1' + path, {
+      const resp = await fetch(API_BASE + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -2241,7 +2278,7 @@
 }
 #sched-timeline {
   display: grid;
-  grid-template-columns: 56px repeat(4, 1fr);
+  grid-template-columns: 56px 1fr; /* JS sets this dynamically in buildTimeline() */
   min-width: 600px;
   position: relative;
 }
@@ -2330,15 +2367,28 @@
 <!-- Header -->
 <div id="sched-header">
   <h2>🗓 Schedule Manager</h2>
-  <label style="font-size:0.78rem;color:#94a3b8;">Festival start:</label>
-  <input id="sched-festival-start" type="date" style="
-    background:#1e293b;border:1px solid #334155;border-radius:6px;
-    color:#e2e8f0;padding:5px 10px;font-size:0.78rem;
-  ">
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:0.78rem;color:#94a3b8;">Start:</label>
+      <input id="sched-festival-start" type="date" style="
+        background:#1e293b;border:1px solid #334155;border-radius:6px;
+        color:#e2e8f0;padding:5px 10px;font-size:0.78rem;
+      ">
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:0.78rem;color:#94a3b8;">End:</label>
+      <input id="sched-festival-end" type="date" style="
+        background:#1e293b;border:1px solid #334155;border-radius:6px;
+        color:#e2e8f0;padding:5px 10px;font-size:0.78rem;
+      ">
+    </div>
+    <span id="sched-day-count" style="font-size:0.72rem;color:#64748b;"></span>
+  </div>
   <div class="sched-ctrl">
     <span id="sched-enabled-badge" class="off" title="Toggle schedule execution">⏸ Schedule OFF</span>
     <button class="sched-btn" id="sched-add-btn">＋ Add Slot</button>
     <button class="sched-btn primary" id="sched-save-btn">💾 Save</button>
+    <button class="sched-btn danger" id="sched-clear-btn" title="Delete all slots and reset dates">🗑 Clear All</button>
   </div>
 </div>
 
@@ -2355,9 +2405,6 @@
       <label>Day</label>
       <select id="sched-modal-day">
         <option value="0">Day 1</option>
-        <option value="1">Day 2</option>
-        <option value="2">Day 3</option>
-        <option value="3">Day 4</option>
       </select>
     </div>
     <div class="sched-field">
@@ -2386,13 +2433,14 @@
 
 <script>
 (function() {
-  const API = 'http://192.168.4.1';
+  const API = API_BASE;
   const ROW_H = 28;   // px per 30-min row
   const PRESET_NAMES = ['Sync Pulse', 'Ring Ripple', 'Alternating Fan'];
   const PRESET_CLASSES = ['preset-0', 'preset-1', 'preset-2'];
 
   let schedule = {
     festival_start: null,
+    festival_end: null,
     enabled: false,
     slots: []
   };
@@ -2421,11 +2469,35 @@
     d.setDate(d.getDate() + i);
     return d.toLocaleDateString('en-GB', {weekday:'short', month:'short', day:'numeric'});
   }
+  function numDays() {
+    if (!schedule.festival_start || !schedule.festival_end) return 4; // default
+    const start = new Date(schedule.festival_start + 'T00:00:00');
+    const end   = new Date(schedule.festival_end   + 'T00:00:00');
+    const diff  = Math.round((end - start) / 86400000) + 1;
+    return Math.max(1, Math.min(diff, 60)); // clamp 1–60 days
+  }
+  function updateDayCount() {
+    const n = numDays();
+    const el = document.getElementById('sched-day-count');
+    if (el) el.textContent = schedule.festival_start && schedule.festival_end ? `${n} day${n!==1?'s':''}` : '';
+  }
+  function populateDaySelect(selectedDay) {
+    const sel = document.getElementById('sched-modal-day');
+    const n = numDays();
+    sel.innerHTML = Array.from({length: n}, (_, i) =>
+      `<option value="${i}">${dayLabel(i)}</option>`
+    ).join('');
+    sel.value = selectedDay ?? 0;
+  }
 
   // ── build timeline DOM ─────────────────────────────────────
   function buildTimeline() {
+    const n = numDays();
     const tl = document.getElementById('sched-timeline');
     tl.innerHTML = '';
+    // Dynamically set grid columns
+    tl.style.gridTemplateColumns = `56px repeat(${n}, 1fr)`;
+    updateDayCount();
 
     // Header row
     const timeHead = document.createElement('div');
@@ -2433,7 +2505,7 @@
     timeHead.style.cssText = 'background:#0a0a0f;border:none;color:#1e293b;';
     tl.appendChild(timeHead);
 
-    for (let d = 0; d < 4; d++) {
+    for (let d = 0; d < n; d++) {
       const h = document.createElement('div');
       h.className = 'sched-day-header' + (d === todayDayIndex ? ' today' : '');
       h.textContent = dayLabel(d);
@@ -2441,8 +2513,6 @@
     }
 
     // Time rows (48 rows = 24 hours in 30-min steps)
-    const dayColumns = [[], [], [], []];  // collect cells per day for slot rendering
-
     for (let row = 0; row < 48; row++) {
       const mins = rowToMins(row);
       const isHour = mins % 60 === 0;
@@ -2455,7 +2525,7 @@
       tl.appendChild(tl_cell);
 
       // Day cells
-      for (let d = 0; d < 4; d++) {
+      for (let d = 0; d < n; d++) {
         const cell = document.createElement('div');
         cell.className = `sched-cell${isHour ? ' hour-mark' : ' half-hour-mark'}`;
         cell.style.height = ROW_H + 'px';
@@ -2476,7 +2546,6 @@
         });
 
         tl.appendChild(cell);
-        dayColumns[d].push(cell);
       }
     }
 
@@ -2495,25 +2564,21 @@
 
     schedule.slots.forEach(slot => {
       const d = slot.day;
-      if (d < 0 || d > 3) return;
+      if (d < 0 || d >= numDays()) return;
 
-      // Find the column cell that is the reference for this day
-      // Column index = 1 + d  (0 = time labels)
-      // We'll use absolute positioning inside the timeline grid column
       const topPx = minsToTop(slot.start_minutes);
       const heightPx = minsToTop(slot.end_minutes) - topPx;
       if (heightPx <= 0) return;
 
-      // We need to place the slot relative to the timeline grid
-      // Use a wrapper positioned relative to the day column
       const el = document.createElement('div');
-      el.className = `sched-slot ${PRESET_CLASSES[slot.animation_index] ?? 'preset-0'}${slot.id === schedule.active_slot_id ? ' active-slot' : ''}`;
+      // Colour: hash the file path to pick one of the 3 preset classes
+      const colorIdx = slot.animation_file
+        ? Math.abs(slot.animation_file.split('').reduce((a,c) => a + c.charCodeAt(0), 0)) % PRESET_CLASSES.length
+        : 0;
+      el.className = `sched-slot ${PRESET_CLASSES[colorIdx]}${slot.id === schedule.active_slot_id ? ' active-slot' : ''}`;
       el.dataset.slotId = slot.id;
 
-      // Position: grid column starts after first column (56px time col)
-      // Each day column is (100% - 56px) / 4
-      // We use inline style with calc
-      const colW = `calc((100% - 56px) / 4)`;
+      const colW = `calc((100% - 56px) / ${numDays()})`;
       el.style.cssText = `
         position: absolute;
         top: calc(${ROW_H}px + ${topPx}px);
@@ -2522,13 +2587,14 @@
         height: ${heightPx}px;
       `;
 
+      const dispName = slot.animation_name ?? slot.animation_file?.split('/').pop()?.replace('.json','') ?? 'Animation';
       el.innerHTML = `
-        <span class="sched-slot-name">${PRESET_NAMES[slot.animation_index] ?? 'Unknown'}</span>
+        <span class="sched-slot-name">${dispName}</span>
         <span class="sched-slot-time">${minsToTime(slot.start_minutes)}–${minsToTime(slot.end_minutes)}</span>
       `;
       el.addEventListener('click', e => {
         e.stopPropagation();
-        openModal(slot.id, slot.day, slot.start_minutes, slot.end_minutes, slot.animation_index);
+        openModal(slot.id, slot.day, slot.start_minutes, slot.end_minutes, slot.animation_file);
       });
       tl.appendChild(el);
     });
@@ -2536,10 +2602,10 @@
 
   function renderNowMarker() {
     document.getElementById('sched-now-marker')?.remove();
-    if (todayDayIndex === null || todayDayIndex < 0 || todayDayIndex > 3) return;
+    if (todayDayIndex === null || todayDayIndex < 0 || todayDayIndex >= numDays()) return;
     const tl = document.getElementById('sched-timeline');
     const topPx = ROW_H + minsToTop(nowMinutes);  // +ROW_H for header row
-    const colW = `calc((100% - 56px) / 4)`;
+    const colW = `calc((100% - 56px) / ${numDays()})`;
     const marker = document.createElement('div');
     marker.id = 'sched-now-marker';
     marker.style.cssText = `
@@ -2551,15 +2617,30 @@
   }
 
   // ── modal ──────────────────────────────────────────────────
-  function openModal(slotId, day, startMins, endMins, animIdx) {
+  function openModal(slotId, day, startMins, endMins, animFile) {
     editingSlotId = slotId;
     document.getElementById('sched-modal-title').textContent = slotId ? 'Edit Time Slot' : 'Add Time Slot';
-    document.getElementById('sched-modal-day').value   = day ?? 0;
+    populateDaySelect(day ?? 0);
     document.getElementById('sched-modal-start').value = minsToTime(startMins ?? 600);
     document.getElementById('sched-modal-end').value   = minsToTime(endMins   ?? 720);
-    document.getElementById('sched-modal-anim').value  = animIdx ?? 0;
     document.getElementById('sched-modal-delete').style.display = slotId ? '' : 'none';
     document.getElementById('sched-modal-bg').classList.add('open');
+    // Refresh animation picker from server so user-created animations appear
+    fetch(API + '/animations')
+      .then(r => r.json())
+      .then(d => {
+        const anims = d.animations || [];
+        const sel = document.getElementById('sched-modal-anim');
+        sel.innerHTML = anims.map(a =>
+          `<option value="${a.file}">${a.name}${a.is_preset ? ' ⬡' : ''}</option>`
+        ).join('');
+        if (animFile) sel.value = animFile;
+      })
+      .catch(() => {
+        // fallback: just set existing value
+        const sel = document.getElementById('sched-modal-anim');
+        if (animFile) sel.value = animFile;
+      });
   }
   function closeModal() {
     document.getElementById('sched-modal-bg').classList.remove('open');
@@ -2572,17 +2653,21 @@
   });
 
   document.getElementById('sched-modal-ok').addEventListener('click', () => {
-    const day      = parseInt(document.getElementById('sched-modal-day').value);
-    const startM   = timeToMins(document.getElementById('sched-modal-start').value);
-    const endM     = timeToMins(document.getElementById('sched-modal-end').value);
-    const animIdx  = parseInt(document.getElementById('sched-modal-anim').value);
+    const day       = parseInt(document.getElementById('sched-modal-day').value);
+    const startM    = timeToMins(document.getElementById('sched-modal-start').value);
+    const endM      = timeToMins(document.getElementById('sched-modal-end').value);
+    const animSel   = document.getElementById('sched-modal-anim');
+    const animFile  = animSel.value;                      // option value = file path
+    const animName  = animSel.options[animSel.selectedIndex]?.text ?? animFile;
     if (endM <= startM) { alert('End time must be after start time.'); return; }
 
     if (editingSlotId) {
       const slot = schedule.slots.find(s => s.id === editingSlotId);
-      if (slot) { slot.day = day; slot.start_minutes = startM; slot.end_minutes = endM; slot.animation_index = animIdx; }
+      if (slot) { slot.day = day; slot.start_minutes = startM; slot.end_minutes = endM;
+                  slot.animation_file = animFile; slot.animation_name = animName; }
     } else {
-      schedule.slots.push({ id: genId(), day, start_minutes: startM, end_minutes: endM, animation_index: animIdx });
+      schedule.slots.push({ id: genId(), day, start_minutes: startM, end_minutes: endM,
+                            animation_file: animFile, animation_name: animName });
     }
     closeModal();
     buildTimeline();
@@ -2598,13 +2683,53 @@
   // ── Add slot button ────────────────────────────────────────
   document.getElementById('sched-add-btn').addEventListener('click', () => openModal(null, 0, 600, 720, 0));
 
-  // ── Festival start date ───────────────────────────────────
+  // ── Festival dates ─────────────────────────────────────────
   document.getElementById('sched-festival-start').addEventListener('change', e => {
-    schedule.festival_start = e.target.value;
+    schedule.festival_start = e.target.value || null;
+    const endEl = document.getElementById('sched-festival-end');
+    endEl.min = e.target.value;
+    if (endEl.value && endEl.value < e.target.value) {
+      endEl.value = e.target.value;
+      schedule.festival_end = e.target.value;
+    }
+    if (!schedule.festival_end) schedule.festival_end = e.target.value;
+    buildTimeline();
+  });
+  document.getElementById('sched-festival-end').addEventListener('change', e => {
+    schedule.festival_end = e.target.value || null;
     buildTimeline();
   });
 
-  // ── Enable badge toggle ────────────────────────────────────
+  // ── Clear All ──────────────────────────────────────────────
+  document.getElementById('sched-clear-btn').addEventListener('click', async () => {
+    if (!confirm('Delete all schedule slots and reset festival dates?\nThis cannot be undone.')) return;
+    // Reset in memory
+    schedule.slots = [];
+    schedule.festival_start = null;
+    schedule.festival_end   = null;
+    schedule.enabled = false;
+    // Reset UI inputs
+    document.getElementById('sched-festival-start').value = '';
+    document.getElementById('sched-festival-end').value   = '';
+    // Save to server
+    try {
+      const r = await fetch(API + '/schedule', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ festival_start: null, festival_end: null, slots: [], enabled: false })
+      });
+      if (r.ok) {
+        showToast('Schedule cleared ✓');
+      } else {
+        showToast('Server error: ' + r.status);
+      }
+    } catch(e) {
+      showToast('Could not reach server — cleared locally only');
+    }
+    updateBadge();
+    buildTimeline();
+  });
+
   const badge = document.getElementById('sched-enabled-badge');
   badge.addEventListener('click', async () => {
     const path = schedule.enabled ? '/schedule/disable' : '/schedule/enable';
@@ -2625,7 +2750,12 @@
   // ── Save ──────────────────────────────────────────────────
   document.getElementById('sched-save-btn').addEventListener('click', async () => {
     try {
-      const payload = { festival_start: schedule.festival_start, slots: schedule.slots, enabled: schedule.enabled };
+      const payload = {
+        festival_start: schedule.festival_start,
+        festival_end:   schedule.festival_end,
+        slots: schedule.slots,
+        enabled: schedule.enabled
+      };
       const r = await fetch(API + '/schedule', {
         method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
       });
@@ -2645,6 +2775,7 @@
       if (!r.ok) return;
       const d = await r.json();
       schedule.festival_start = d.festival_start;
+      schedule.festival_end   = d.festival_end;
       schedule.slots          = d.slots ?? [];
       schedule.enabled        = d.enabled ?? false;
       schedule.active_slot_id = d.active_slot_id;
@@ -2652,12 +2783,12 @@
       nowMinutes              = d.now_minutes ?? 0;
 
       if (d.festival_start) document.getElementById('sched-festival-start').value = d.festival_start;
-
-      // Populate preset dropdown from server
-      if (d.presets?.length) {
-        const sel = document.getElementById('sched-modal-anim');
-        sel.innerHTML = d.presets.map((p,i) => `<option value="${i}">${p.name}</option>`).join('');
+      if (d.festival_end)   {
+        const endEl = document.getElementById('sched-festival-end');
+        endEl.value = d.festival_end;
+        endEl.min   = d.festival_start ?? '';
       }
+
       updateBadge();
       buildTimeline();
     } catch(e) {
@@ -2706,5 +2837,250 @@
 </script>
 
 </div><!-- /#view-schedule -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     ANIMATIONS LIBRARY MODAL (accessible from both tabs)
+═══════════════════════════════════════════════════════════ -->
+<div id="lib-modal-bg" style="
+  display:none; position:fixed; inset:0; z-index:20000;
+  background:rgba(0,0,0,0.8); backdrop-filter:blur(6px);
+  align-items:flex-start; justify-content:center; padding-top:60px;
+">
+<div id="lib-modal" style="
+  background:#0f172a; border:1px solid #1e293b; border-radius:14px;
+  width:min(680px,95vw); max-height:80vh; display:flex; flex-direction:column;
+  box-shadow:0 32px 80px rgba(0,0,0,0.9); overflow:hidden;
+">
+  <!-- Modal header -->
+  <div style="display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid #1e293b; flex-shrink:0;">
+    <span style="font-size:1.1rem; font-weight:700; color:#f1f5f9;">🎬 Animation Library</span>
+    <span id="lib-count" style="font-size:0.72rem; color:#64748b; background:#1e293b; padding:2px 8px; border-radius:10px;"></span>
+    <button id="lib-close" style="
+      margin-left:auto; background:transparent; border:none; color:#64748b;
+      font-size:1.3rem; cursor:pointer; line-height:1; padding:4px 8px;
+    ">✕</button>
+  </div>
+  <!-- Animation list -->
+  <div id="lib-list" style="overflow-y:auto; flex:1; padding:12px 16px; display:flex; flex-direction:column; gap:8px;">
+    <div style="color:#475569; text-align:center; padding:40px 0;">Loading…</div>
+  </div>
+</div>
+</div>
+
+<style>
+.lib-item {
+  display:flex; align-items:center; gap:10px;
+  background:#1e293b; border:1px solid #334155; border-radius:8px;
+  padding:10px 14px; transition:border-color 0.15s;
+}
+.lib-item:hover { border-color:#2563eb; }
+.lib-badge {
+  font-size:0.62rem; font-weight:700; letter-spacing:0.05em;
+  padding:2px 7px; border-radius:10px; white-space:nowrap;
+}
+.lib-badge.preset { background:#14532d; color:#4ade80; }
+.lib-badge.user   { background:#1e3a5f; color:#60a5fa; }
+.lib-name { font-size:0.85rem; font-weight:600; color:#e2e8f0; flex:1; }
+.lib-frames { font-size:0.7rem; color:#64748b; }
+.lib-actions { display:flex; gap:6px; }
+.lib-btn {
+  padding:4px 11px; border-radius:5px; font-size:0.72rem; font-weight:600;
+  cursor:pointer; border:1px solid; transition:all 0.15s;
+}
+.lib-btn.load   { background:#1e3a5f; border-color:#2563eb; color:#93c5fd; }
+.lib-btn.load:hover { background:#2563eb; color:#fff; }
+.lib-btn.play   { background:#14532d; border-color:#22c55e; color:#4ade80; }
+.lib-btn.play:hover { background:#16a34a; color:#fff; }
+.lib-btn.del    { background:#450a0a; border-color:#dc2626; color:#fca5a5; }
+.lib-btn.del:hover  { background:#dc2626; color:#fff; }
+</style>
+
+<script>
+(function() {
+  const API = API_BASE;
+
+  // ── State ─────────────────────────────────────────────────
+  let libraryAnims = [];   // latest list from server
+
+  // ── Helpers ───────────────────────────────────────────────
+  function showToastGlobal(msg, ok = true) {
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = `
+      position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+      background:#1e293b;color:${ok ? '#4ade80' : '#f87171'};
+      border:1px solid ${ok ? '#22c55e' : '#dc2626'};
+      border-radius:8px;padding:10px 20px;font-size:0.82rem;font-weight:700;
+      z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.6);
+    `;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  // ── Load animations from server ───────────────────────────
+  async function fetchAnimations() {
+    try {
+      const r = await fetch(API + '/animations');
+      if (!r.ok) return [];
+      const d = await r.json();
+      libraryAnims = d.animations || [];
+      return libraryAnims;
+    } catch (e) {
+      console.warn('[Library]', e.message);
+      return [];
+    }
+  }
+
+  // ── Render library list ───────────────────────────────────
+  function renderLibrary(anims) {
+    const list = document.getElementById('lib-list');
+    document.getElementById('lib-count').textContent = `${anims.length} animation${anims.length !== 1 ? 's' : ''}`;
+
+    if (!anims.length) {
+      list.innerHTML = '<div style="color:#475569;text-align:center;padding:40px 0;">No animations saved yet.</div>';
+      return;
+    }
+
+    list.innerHTML = '';
+    anims.forEach(anim => {
+      const item = document.createElement('div');
+      item.className = 'lib-item';
+      item.innerHTML = `
+        <span class="lib-badge ${anim.is_preset ? 'preset' : 'user'}">${anim.is_preset ? 'PRESET' : 'SAVED'}</span>
+        <span class="lib-name">${anim.name}</span>
+        <span class="lib-frames">${anim.frame_count} frame${anim.frame_count !== 1 ? 's' : ''}</span>
+        <div class="lib-actions">
+          <button class="lib-btn load" data-name="${anim.name}" data-preset="${anim.is_preset}">✏️ Load</button>
+          <button class="lib-btn play" data-file="${anim.file}">▶ Play</button>
+          ${!anim.is_preset ? `<button class="lib-btn del" data-name="${anim.name}">🗑 Delete</button>` : ''}
+        </div>
+      `;
+
+      // Load button → fetch frames and load into editor (works for presets AND user animations)
+      item.querySelector('.lib-btn.load').addEventListener('click', async () => {
+        try {
+          const r = await fetch(`${API}/animations/frames/${encodeURIComponent(anim.name)}`);
+          if (!r.ok) throw new Error('Not found');
+          const frames = await r.json();
+          document.dispatchEvent(new CustomEvent('load-animation-frames', { detail: { frames, name: anim.name } }));
+          document.getElementById('save-filename').value = anim.name;
+          // Switch to the editor tab so the user sees the loaded frames
+          document.querySelector('.tab-btn[data-view="view-editor"]')?.click();
+          closeLibrary();
+          showToastGlobal(`Loaded "${anim.name}" into editor`);
+        } catch(e) {
+          showToastGlobal('Failed to load: ' + e.message, false);
+        }
+      });
+
+      // Play button → call /play_animation with the file path
+      item.querySelector('.lib-btn.play').addEventListener('click', async () => {
+        try {
+          const loop = document.getElementById('loop-checkbox')?.checked ?? false;
+          const r = await fetch(API + '/play_animation', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ file: anim.file, loop })
+          });
+          if (r.ok) showToastGlobal(`Playing "${anim.name}"`);
+          else showToastGlobal('Play failed', false);
+        } catch(e) { showToastGlobal('Server unreachable', false); }
+      });
+
+      // Delete button
+      const delBtn = item.querySelector('.lib-btn.del');
+      if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+          if (!confirm(`Delete animation "${anim.name}"? This cannot be undone.`)) return;
+          try {
+            const r = await fetch(API + '/animations/delete', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ name: anim.name })
+            });
+            if (r.ok) {
+              const d = await r.json();
+              libraryAnims = d.animations;
+              renderLibrary(libraryAnims);
+              updateScheduleAnimPicker(libraryAnims);
+              showToastGlobal(`Deleted "${anim.name}"`);
+            }
+          } catch(e) { showToastGlobal('Delete failed', false); }
+        });
+      }
+
+      list.appendChild(item);
+    });
+  }
+
+  // ── Update schedule animation picker ──────────────────────
+  function updateScheduleAnimPicker(anims) {
+    const sel = document.getElementById('sched-modal-anim');
+    if (!sel) return;
+    sel.innerHTML = anims.map(a =>
+      `<option value="${a.file}">${a.name}${a.is_preset ? ' ⬡' : ''}</option>`
+    ).join('');
+  }
+
+  // ── Open / Close ──────────────────────────────────────────
+  async function openLibrary() {
+    document.getElementById('lib-modal-bg').style.display = 'flex';
+    document.getElementById('lib-list').innerHTML =
+      '<div style="color:#475569;text-align:center;padding:40px 0;">Loading…</div>';
+    const anims = await fetchAnimations();
+    renderLibrary(anims);
+    updateScheduleAnimPicker(anims);
+  }
+  function closeLibrary() {
+    document.getElementById('lib-modal-bg').style.display = 'none';
+  }
+
+  document.getElementById('lib-close').addEventListener('click', closeLibrary);
+  document.getElementById('lib-modal-bg').addEventListener('click', e => {
+    if (e.target === document.getElementById('lib-modal-bg')) closeLibrary();
+  });
+  document.getElementById('open-library').addEventListener('click', openLibrary);
+
+  // ── Save to server ────────────────────────────────────────
+  document.getElementById('save-to-server').addEventListener('click', async () => {
+    // Collect current animation frames from the editor
+    const name = document.getElementById('save-filename')?.value?.trim();
+    if (!name) { showToastGlobal('Enter a filename first', false); return; }
+
+    // The editor stores frames globally – dispatch event to collect them
+    const frameData = { frames: null };
+    document.dispatchEvent(new CustomEvent('collect-animation-frames', { detail: frameData }));
+
+    // Wait one tick for the event handler to fill in frames
+    await new Promise(r => setTimeout(r, 50));
+
+    if (!frameData.frames || !frameData.frames.length) {
+      showToastGlobal('No frames to save – create an animation first', false);
+      return;
+    }
+
+    try {
+      const r = await fetch(API + '/animations', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name, frames: frameData.frames })
+      });
+      if (r.ok) {
+        const d = await r.json();
+        libraryAnims = d.animations;
+        updateScheduleAnimPicker(libraryAnims);
+        showToastGlobal(`Saved "${d.name}" to server (${frameData.frames.length} frames) ✓`);
+      } else {
+        const e = await r.json();
+        showToastGlobal('Save failed: ' + (e.message || r.status), false);
+      }
+    } catch(e) { showToastGlobal('Server unreachable: ' + e.message, false); }
+  });
+
+  // ── Pre-load animation list on page load (for schedule picker) ──
+  fetchAnimations().then(anims => updateScheduleAnimPicker(anims));
+
+})();
+</script>
 </body>
 </html>

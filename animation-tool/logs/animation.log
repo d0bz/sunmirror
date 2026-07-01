@@ -1,0 +1,2 @@
+Command: /home/d0bz/miniconda/bin/python3 /tmp/sunmirror_sim_main.py --file /tmp/tmpsl_1ur8f.json --step-size 1.0
+Error: name 'datetime' is not defined
