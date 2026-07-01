@@ -25,6 +25,9 @@ SYNC_FILES = [
     "animation-tool/index.html",
     "animation-tool/start-wave.json",
     "animation-tool/shutdown-wave.json",
+    "animation-tool/anim-pulse.json",
+    "animation-tool/anim-ripple.json",
+    "animation-tool/anim-alternating.json",
 ]
 
 # Derive the project root from this script's location

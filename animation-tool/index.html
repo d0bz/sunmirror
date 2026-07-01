@@ -574,9 +574,10 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
     ">
-      <button id="animation-toggle-btn" title="Toggle animation on/off (synced with physical button)" style="
+      <!-- Power toggle (long-press = 2s in UI too, click = toggle) -->
+      <button id="animation-toggle-btn" title="Long-press 2s to start/stop animation" style="
         width: 52px;
         height: 52px;
         border-radius: 50%;
@@ -593,7 +594,42 @@
       ">
         <i class="fas fa-power-off"></i>
       </button>
+      <!-- ON / OFF label -->
       <span id="animation-toggle-label" style="font-size: 0.65rem; color: #22c55e; font-weight: 700; letter-spacing: 0.05em;">OFF</span>
+      <!-- Dot indicators (one per preset) -->
+      <div id="anim-dots" style="display:flex; gap:5px; margin-top:2px;">
+        <span class="anim-dot" data-index="0" style="width:8px;height:8px;border-radius:50%;background:#22c55e;opacity:1;transition:opacity 0.2s;"></span>
+        <span class="anim-dot" data-index="1" style="width:8px;height:8px;border-radius:50%;background:#22c55e;opacity:0.25;transition:opacity 0.2s;"></span>
+        <span class="anim-dot" data-index="2" style="width:8px;height:8px;border-radius:50%;background:#22c55e;opacity:0.25;transition:opacity 0.2s;"></span>
+      </div>
+      <!-- Animation name -->
+      <span id="anim-name-label" style="
+        font-size: 0.58rem;
+        color: #86efac;
+        font-weight: 600;
+        max-width: 68px;
+        text-align: center;
+        line-height: 1.2;
+        min-height: 1.4em;
+      ">Sync Pulse</span>
+      <!-- Next animation button (short-press equivalent) -->
+      <button id="anim-next-btn" title="Next animation (short-press equivalent)" style="
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 2px solid #4ade80;
+        background: transparent;
+        color: #4ade80;
+        font-size: 0.85rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        margin-top: 2px;
+      ">
+        <i class="fas fa-chevron-right"></i>
+      </button>
     </div>
     <div class="panel">
       <div class="controls">
@@ -2033,69 +2069,105 @@
 
   // -------------------------------------------------------------------------
   // Animation Toggle Button – synced with the physical RPi button
+  // Short click → next animation preset
+  // Long press (≥2 s) → toggle animation on/off
   // -------------------------------------------------------------------------
   const toggleBtn   = document.getElementById('animation-toggle-btn');
   const toggleLabel = document.getElementById('animation-toggle-label');
+  const animName    = document.getElementById('anim-name-label');
+  const animDots    = document.querySelectorAll('.anim-dot');
+  const nextBtn     = document.getElementById('anim-next-btn');
 
-  /** Update the toggle button visual state */
-  function applyToggleState(isRunning) {
-    if (isRunning) {
+  const LONG_PRESS_MS = 2000;
+  let pressTimer = null;
+  let longPressTriggered = false;
+
+  /** Update all UI elements from a status payload */
+  function applyFullState(data) {
+    const running = data.animation_running;
+    const idx     = data.animation_index ?? 0;
+    const name    = data.animation_name  ?? '';
+
+    // Power button
+    if (running) {
       toggleBtn.classList.add('anim-on');
-      toggleBtn.classList.remove('anim-busy');
       toggleLabel.classList.add('anim-on');
       toggleLabel.textContent = 'ON';
     } else {
       toggleBtn.classList.remove('anim-on');
-      toggleBtn.classList.remove('anim-busy');
       toggleLabel.classList.remove('anim-on');
       toggleLabel.textContent = 'OFF';
     }
+    toggleBtn.classList.remove('anim-busy');
+
+    // Animation name
+    animName.textContent = name;
+
+    // Dots
+    animDots.forEach(dot => {
+      dot.style.opacity = parseInt(dot.dataset.index) === idx ? '1' : '0.25';
+    });
   }
 
-  /** Fetch current animation status from the server and update the button */
+  /** Fetch current state and apply */
   async function refreshToggleState() {
     try {
       const resp = await fetch('http://192.168.4.1/animation_status');
-      if (resp.ok) {
-        const data = await resp.json();
-        applyToggleState(data.animation_running);
-      }
-    } catch (_) {
-      // Server unreachable – leave button as-is
-    }
+      if (resp.ok) applyFullState(await resp.json());
+    } catch (_) {}
   }
 
-  // Poll every 2 s so the UI stays in sync with the physical button
-  refreshToggleState();
-  setInterval(refreshToggleState, 2000);
-
-  /** Click → call /toggle_animation */
-  toggleBtn.addEventListener('click', async () => {
-    if (toggleBtn.classList.contains('anim-busy')) return;
+  /** Call an endpoint and apply returned state */
+  async function callEndpoint(path) {
     toggleBtn.classList.add('anim-busy');
     try {
-      const resp = await fetch('http://192.168.4.1/toggle_animation', {
+      const resp = await fetch('http://192.168.4.1' + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       });
-      if (resp.ok) {
-        const data = await resp.json();
-        applyToggleState(data.animation_running);
-      } else {
-        console.error('toggle_animation failed', resp.status);
-      }
+      if (resp.ok) applyFullState(await resp.json());
+      else console.error(path, 'failed', resp.status);
     } catch (err) {
       alert(`Error: ${err.message}. Make sure the animation server is running.`);
     } finally {
       toggleBtn.classList.remove('anim-busy');
     }
-  });
+  }
+
+  // Long-press detection on the power button
+  function startPress() {
+    longPressTriggered = false;
+    pressTimer = setTimeout(() => {
+      longPressTriggered = true;
+      callEndpoint('/toggle_animation');   // long press → on/off
+    }, LONG_PRESS_MS);
+  }
+  function endPress() {
+    clearTimeout(pressTimer);
+    if (!longPressTriggered) {
+      callEndpoint('/next_animation');     // short press → cycle
+    }
+  }
+
+  toggleBtn.addEventListener('mousedown',  startPress);
+  toggleBtn.addEventListener('touchstart', startPress, { passive: true });
+  toggleBtn.addEventListener('mouseup',    endPress);
+  toggleBtn.addEventListener('touchend',   endPress);
+  toggleBtn.addEventListener('mouseleave', () => clearTimeout(pressTimer));
+
+  // "Next" chevron button → always cycles
+  nextBtn.addEventListener('click', () => callEndpoint('/next_animation'));
+
+  // Poll every 2 s to stay in sync with the physical button
+  refreshToggleState();
+  setInterval(refreshToggleState, 2000);
 
   // Keep existing play/stop buttons in sync with the toggle state
   const _origPlayClick = playOnMirrorsBtn.onclick;
   playOnMirrorsBtn.addEventListener('click', () => setTimeout(refreshToggleState, 500));
   stopMirrorsBtn.addEventListener('click', () => setTimeout(refreshToggleState, 500));
+
 
 })();
 </script>

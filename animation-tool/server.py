@@ -23,7 +23,18 @@ SHUTDOWN_IN_PROGRESS = False
 # Shared animation state - controlled by both the physical toggle button and the web UI
 animation_running = False          # True when an animation loop is active
 current_animation_file = None      # Path to the animation JSON currently playing
-DEFAULT_LOOP_ANIMATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start-wave.json')
+
+_SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Preset animation sets cycled by short-press of the physical button (or UI)
+ANIMATION_PRESETS = [
+    {"name": "Sync Pulse",       "file": os.path.join(_SERVER_DIR, "anim-pulse.json")},
+    {"name": "Ring Ripple",      "file": os.path.join(_SERVER_DIR, "anim-ripple.json")},
+    {"name": "Alternating Fan",  "file": os.path.join(_SERVER_DIR, "anim-alternating.json")},
+]
+current_animation_index = 0        # Which preset is selected
+
+DEFAULT_LOOP_ANIMATION = ANIMATION_PRESETS[0]["file"]  # fallback / startup
 
 class AnimationServer(SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -42,7 +53,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests to play animations"""
-        global current_process, animation_running, current_animation_file
+        global current_process, animation_running, current_animation_file, current_animation_index
         if self.path == '/play_animation':
             try:
                 # Get content length
@@ -236,20 +247,15 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 self.wfile.write(error_bytes)
         elif self.path == '/toggle_animation':
             """
-            Toggle the animation on/off.
-            When toggled ON  → start the default loop animation (or the file in the request body).
-            When toggled OFF → kill any running animation and move all motors to initial angle.
-            Body (optional JSON): { "file": "<path_to_animation_json>" }
+            Toggle the animation on/off (long-press action).
+            When toggled ON  → start the currently selected preset animation in a loop.
+            When toggled OFF → kill any running animation (motors return to initial angle).
             """
             try:
-                # Try to read an optional body
+                # Ignore body – we always use the currently selected preset
                 content_length = int(self.headers.get('Content-Length', 0))
-                anim_file = DEFAULT_LOOP_ANIMATION
                 if content_length > 0:
-                    body = self.rfile.read(content_length).decode('utf-8')
-                    body_data = json.loads(body)
-                    if 'file' in body_data:
-                        anim_file = body_data['file']
+                    self.rfile.read(content_length)  # drain
 
                 if animation_running:
                     # ---- STOP ----
@@ -259,30 +265,80 @@ class AnimationServer(SimpleHTTPRequestHandler):
                     response_dict = {
                         'status': 'stopped',
                         'message': 'Animation stopped and motors returning to initial angle',
-                        'animation_running': False
+                        'animation_running': False,
+                        'animation_index': current_animation_index,
+                        'animation_name': ANIMATION_PRESETS[current_animation_index]['name'],
+                        'presets': [p['name'] for p in ANIMATION_PRESETS],
                     }
                 else:
                     # ---- START ----
-                    process = play_animation_from_file(
-                        full_path=anim_file,
-                        loop=True
-                    )
+                    anim_file = ANIMATION_PRESETS[current_animation_index]['file']
+                    process = play_animation_from_file(full_path=anim_file, loop=True)
                     if process:
                         animation_running = True
                         current_animation_file = anim_file
                         response_dict = {
                             'status': 'started',
-                            'message': 'Animation started',
+                            'message': f"Animation started: {ANIMATION_PRESETS[current_animation_index]['name']}",
                             'animation_running': True,
-                            'pid': process.pid
+                            'animation_index': current_animation_index,
+                            'animation_name': ANIMATION_PRESETS[current_animation_index]['name'],
+                            'presets': [p['name'] for p in ANIMATION_PRESETS],
+                            'pid': process.pid,
                         }
                     else:
                         response_dict = {
                             'status': 'error',
                             'message': 'Failed to start animation',
-                            'animation_running': False
+                            'animation_running': False,
                         }
 
+                response_json = json.dumps(response_dict)
+                response_bytes = response_json.encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(response_bytes)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(response_bytes)
+            except Exception as e:
+                traceback.print_exc()
+                error_bytes = json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(error_bytes)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(error_bytes)
+
+        elif self.path == '/next_animation':
+            """
+            Cycle to the next preset animation (short-press action).
+            If the animation is currently running, restarts it with the new preset.
+            """
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                if content_length > 0:
+                    self.rfile.read(content_length)  # drain
+
+                current_animation_index = (current_animation_index + 1) % len(ANIMATION_PRESETS)
+                preset = ANIMATION_PRESETS[current_animation_index]
+
+                if animation_running:
+                    # Restart with new preset
+                    self._kill_existing_process()
+                    process = play_animation_from_file(full_path=preset['file'], loop=True)
+                    if process:
+                        current_animation_file = preset['file']
+                    animation_running = bool(process)
+
+                response_dict = {
+                    'status': 'ok',
+                    'animation_running': animation_running,
+                    'animation_index': current_animation_index,
+                    'animation_name': preset['name'],
+                    'presets': [p['name'] for p in ANIMATION_PRESETS],
+                }
                 response_json = json.dumps(response_dict)
                 response_bytes = response_json.encode('utf-8')
                 self.send_response(200)
@@ -465,7 +521,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET requests - serve static files or handle API endpoints"""
-        global current_process, animation_running, current_animation_file
+        global current_process, animation_running, current_animation_file, current_animation_index
         # Check for kill endpoint
         if self.path == '/kill_animation':
             killed = self._kill_existing_process()
@@ -502,9 +558,13 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 and current_process is not None
                 and current_process.poll() is None
             )
+            if not is_alive:
+                animation_running = False  # self-heal if process died
             response_dict = {
                 'animation_running': is_alive,
-                'animation_file': current_animation_file
+                'animation_index': current_animation_index,
+                'animation_name': ANIMATION_PRESETS[current_animation_index]['name'],
+                'presets': [p['name'] for p in ANIMATION_PRESETS],
             }
             response_json = json.dumps(response_dict)
             response_bytes = response_json.encode('utf-8')
@@ -635,14 +695,14 @@ def handle_shutdown_signal(signum, frame):
 # ---------------------------------------------------------------------------
 # GPIO Button Handler (runs as a daemon thread inside the server process)
 # ---------------------------------------------------------------------------
-BUTTON_GPIO_PIN = 17        # BCM numbering – GPIO 17 = physical pin 11
-BUTTON_DEBOUNCE_MS = 300    # milliseconds
+BUTTON_GPIO_PIN     = 17    # BCM numbering – GPIO 17 = physical pin 11
+BUTTON_DEBOUNCE_MS  = 300   # ms – ignore bounces after initial edge
+LONG_PRESS_S        = 2.0   # seconds – threshold between short and long press
 
 def _do_toggle():
-    """Toggle animation state – same logic as the /toggle_animation endpoint."""
-    global animation_running, current_animation_file
+    """Long-press action: start/stop animation using the current preset."""
+    global animation_running, current_animation_file, current_process
     if animation_running:
-        # Stop: kill process, motors will return to initial angle via main.py cleanup
         if current_process and current_process.poll() is None:
             try:
                 os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
@@ -650,16 +710,38 @@ def _do_toggle():
                 print(f"[Button] Error killing process: {e}")
         animation_running = False
         current_animation_file = None
-        print("[Button] Animation stopped via physical button")
+        print("[Button] Long-press → animation STOPPED")
     else:
-        # Start: play the default loop animation
-        process = play_animation_from_file(full_path=DEFAULT_LOOP_ANIMATION, loop=True)
+        preset = ANIMATION_PRESETS[current_animation_index]
+        process = play_animation_from_file(full_path=preset['file'], loop=True)
         if process:
             animation_running = True
-            current_animation_file = DEFAULT_LOOP_ANIMATION
-            print(f"[Button] Animation started via physical button (PID {process.pid})")
+            current_animation_file = preset['file']
+            print(f"[Button] Long-press → animation STARTED: {preset['name']} (PID {process.pid})")
         else:
-            print("[Button] Failed to start animation")
+            print("[Button] Long-press → failed to start animation")
+
+def _do_next_animation():
+    """Short-press action: cycle to next preset. Restart if already running."""
+    global animation_running, current_animation_file, current_animation_index, current_process
+    current_animation_index = (current_animation_index + 1) % len(ANIMATION_PRESETS)
+    preset = ANIMATION_PRESETS[current_animation_index]
+    print(f"[Button] Short-press → selected preset {current_animation_index}: {preset['name']}")
+
+    if animation_running:
+        # Restart with new preset
+        if current_process and current_process.poll() is None:
+            try:
+                os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
+            except Exception as e:
+                print(f"[Button] Error killing process on preset change: {e}")
+        process = play_animation_from_file(full_path=preset['file'], loop=True)
+        if process:
+            current_animation_file = preset['file']
+            animation_running = True
+            print(f"[Button] Restarted with new preset (PID {process.pid})")
+        else:
+            animation_running = False
 
 def _start_gpio_button_thread():
     """Start a background daemon thread that monitors the physical toggle button."""
@@ -671,18 +753,30 @@ def _start_gpio_button_thread():
             GPIO.setmode(GPIO.BCM)
             # Internal pull-up: button connects GPIO pin to GND when pressed
             GPIO.setup(BUTTON_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            print(f"[Button] Listening on GPIO {BUTTON_GPIO_PIN} (BCM)")
+            print(f"[Button] Listening on GPIO {BUTTON_GPIO_PIN} (BCM) — "
+                  f"short-press cycles preset, long-press (≥{LONG_PRESS_S}s) toggles on/off")
 
-            def on_press(channel):
-                # Extra software debounce: wait and confirm pin is still LOW
-                time.sleep(BUTTON_DEBOUNCE_MS / 1000.0)
+            press_time = [None]  # mutable container for the closure
+
+            def on_edge(channel):
                 if GPIO.input(channel) == GPIO.LOW:
-                    _do_toggle()
+                    # ---- Button pressed (FALLING) ----
+                    press_time[0] = time.monotonic()
+                else:
+                    # ---- Button released (RISING) ----
+                    if press_time[0] is None:
+                        return
+                    duration = time.monotonic() - press_time[0]
+                    press_time[0] = None
+                    if duration < LONG_PRESS_S:
+                        _do_next_animation()   # short press → cycle
+                    else:
+                        _do_toggle()           # long press  → on/off
 
             GPIO.add_event_detect(
                 BUTTON_GPIO_PIN,
-                GPIO.FALLING,
-                callback=on_press,
+                GPIO.BOTH,
+                callback=on_edge,
                 bouncetime=BUTTON_DEBOUNCE_MS
             )
 
