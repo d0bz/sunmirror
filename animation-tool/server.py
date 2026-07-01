@@ -6,10 +6,12 @@ import subprocess
 import traceback
 import signal
 import time
+import uuid
+import threading
+import datetime as dt
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs
 import tempfile
-import datetime
 
 
 # Add parent directory to path to access main.py
@@ -35,6 +37,18 @@ ANIMATION_PRESETS = [
 current_animation_index = 0        # Which preset is selected
 
 DEFAULT_LOOP_ANIMATION = ANIMATION_PRESETS[0]["file"]  # fallback / startup
+
+# ---------------------------------------------------------------------------
+# Schedule globals
+# ---------------------------------------------------------------------------
+SCHEDULE_FILE = os.path.join(_SERVER_DIR, 'schedule.json')
+schedule_data = {
+    "festival_start": None,   # ISO date string "YYYY-MM-DD"
+    "enabled": False,
+    "slots": []               # list of {id, day(0-3), start_minutes, end_minutes, animation_index}
+}
+schedule_enabled = False          # master on/off
+schedule_started_by_runner = False  # True when runner owns the current process
 
 class AnimationServer(SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -357,6 +371,69 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(error_bytes)
 
+        # POST /schedule – save full schedule
+        elif self.path == '/schedule':
+            global schedule_data, schedule_enabled
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8')
+                incoming = json.loads(body)
+                # Merge incoming fields
+                if 'festival_start' in incoming:
+                    schedule_data['festival_start'] = incoming['festival_start']
+                if 'slots' in incoming:
+                    schedule_data['slots'] = incoming['slots']
+                if 'enabled' in incoming:
+                    schedule_enabled = bool(incoming['enabled'])
+                    schedule_data['enabled'] = schedule_enabled
+                _save_schedule()
+                # Run a tick immediately so changes take effect within a second
+                threading.Thread(target=_schedule_tick, daemon=True).start()
+                resp = json.dumps({'status': 'saved', 'slot_count': len(schedule_data['slots']), 'enabled': schedule_enabled})
+                resp_bytes = resp.encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(resp_bytes)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(resp_bytes)
+            except Exception as e:
+                traceback.print_exc()
+                err = json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(err)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(err)
+
+        # POST /schedule/enable  and  /schedule/disable
+        elif self.path in ('/schedule/enable', '/schedule/disable'):
+            global schedule_enabled
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                if content_length > 0:
+                    self.rfile.read(content_length)
+                schedule_enabled = (self.path == '/schedule/enable')
+                schedule_data['enabled'] = schedule_enabled
+                _save_schedule()
+                threading.Thread(target=_schedule_tick, daemon=True).start()
+                resp = json.dumps({'status': 'ok', 'enabled': schedule_enabled}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                err = json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(err)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(err)
+
         elif self.path == '/shutdown':
             try:
                 # Get content length
@@ -575,7 +652,33 @@ class AnimationServer(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(response_bytes)
             return
-        
+
+        # GET /schedule – return full schedule + active slot
+        if self.path == '/schedule':
+            global schedule_data, schedule_enabled
+            now = dt.datetime.now()
+            active = _get_active_slot()
+            payload = {
+                **schedule_data,
+                'enabled': schedule_enabled,
+                'server_time': now.strftime('%Y-%m-%dT%H:%M:%S'),
+                'now_minutes': now.hour * 60 + now.minute,
+                'today_day_index': (
+                    (now.date() - dt.date.fromisoformat(schedule_data['festival_start'])).days
+                    if schedule_data.get('festival_start') else None
+                ),
+                'active_slot_id': active['id'] if active else None,
+                'presets': [{'name': p['name']} for p in ANIMATION_PRESETS],
+            }
+            resp = json.dumps(payload).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+
         # For all other paths, use the default handler
         self.path = self.path.split('?')[0]  # Remove query parameters
         return SimpleHTTPRequestHandler.do_GET(self)
@@ -793,14 +896,120 @@ def _start_gpio_button_thread():
     t.start()
 
 
+# ---------------------------------------------------------------------------
+# Schedule helpers
+# ---------------------------------------------------------------------------
+
+def _load_schedule():
+    """Load schedule from disk into schedule_data."""
+    global schedule_data, schedule_enabled
+    if os.path.isfile(SCHEDULE_FILE):
+        try:
+            with open(SCHEDULE_FILE, 'r') as f:
+                loaded = json.load(f)
+            schedule_data.update(loaded)
+            schedule_enabled = loaded.get('enabled', False)
+            print(f"[Schedule] Loaded {len(schedule_data['slots'])} slot(s), enabled={schedule_enabled}")
+        except Exception as e:
+            print(f"[Schedule] Failed to load schedule: {e}")
+
+def _save_schedule():
+    """Persist schedule_data to disk."""
+    try:
+        with open(SCHEDULE_FILE, 'w') as f:
+            payload = dict(schedule_data)
+            payload['enabled'] = schedule_enabled
+            json.dump(payload, f, indent=2)
+    except Exception as e:
+        print(f"[Schedule] Failed to save schedule: {e}")
+
+def _get_active_slot():
+    """Return the slot that should be playing right now, or None."""
+    if not schedule_enabled or not schedule_data.get('festival_start'):
+        return None
+    try:
+        festival_start = dt.date.fromisoformat(schedule_data['festival_start'])
+    except Exception:
+        return None
+
+    now = dt.datetime.now()
+    today = now.date()
+    day_index = (today - festival_start).days  # 0-based
+    if day_index < 0 or day_index > 3:
+        return None  # outside festival window
+
+    now_minutes = now.hour * 60 + now.minute
+    for slot in schedule_data.get('slots', []):
+        if slot.get('day') == day_index:
+            start_m = slot.get('start_minutes', 0)
+            end_m   = slot.get('end_minutes', 0)
+            if start_m <= now_minutes < end_m:
+                return slot
+    return None
+
+def _schedule_tick():
+    """Check the schedule and start/stop animation accordingly."""
+    global animation_running, current_animation_file, current_animation_index
+    global schedule_started_by_runner, current_process
+
+    slot = _get_active_slot()
+    if slot:
+        target_idx = slot.get('animation_index', 0)
+        preset = ANIMATION_PRESETS[target_idx]
+        if not animation_running or current_animation_index != target_idx:
+            # Need to start or switch preset
+            if animation_running:
+                try:
+                    os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
+                except Exception:
+                    pass
+            process = play_animation_from_file(full_path=preset['file'], loop=True)
+            if process:
+                animation_running = True
+                current_animation_file = preset['file']
+                current_animation_index = target_idx
+                schedule_started_by_runner = True
+                print(f"[Schedule] Started: {preset['name']}")
+    else:
+        # No active slot → stop only if we started it
+        if animation_running and schedule_started_by_runner:
+            try:
+                os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
+            except Exception:
+                pass
+            animation_running = False
+            current_animation_file = None
+            schedule_started_by_runner = False
+            print("[Schedule] Stopped (end of slot)")
+
+def _start_schedule_thread():
+    """Start the background schedule runner thread (ticks every 30 s)."""
+    def runner():
+        while True:
+            try:
+                _schedule_tick()
+            except Exception as e:
+                print(f"[Schedule] Tick error: {e}")
+            time.sleep(30)
+    t = threading.Thread(target=runner, name="schedule-runner", daemon=True)
+    t.start()
+    print("[Schedule] Runner started (30 s interval)")
+
+
 def run_server(port=80):
     """Run the animation server on the specified port"""
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, handle_shutdown_signal)  # Ctrl+C
     signal.signal(signal.SIGTERM, handle_shutdown_signal)  # kill command
 
+    # Load persisted schedule
+    _load_schedule()
+
     # Start the physical toggle button listener in the background
     _start_gpio_button_thread()
+
+    # Start the schedule runner
+    _start_schedule_thread()
 
     # Play startup animation
     play_startup_animation()

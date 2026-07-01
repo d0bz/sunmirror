@@ -558,6 +558,28 @@
 </style>
 </head>
 <body>
+  <!-- ── Tab Navigation ─────────────────────────────────── -->
+  <nav id="tab-bar" style="
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9000;
+    display: flex; align-items: center; gap: 2px;
+    background: #0a0a0f; border-bottom: 1px solid #1e293b;
+    padding: 0 12px; height: 44px;
+  ">
+    <button class="tab-btn active" data-view="view-editor" style="
+      padding: 6px 18px; border-radius: 6px 6px 0 0;
+      border: 1px solid #334155; border-bottom: none;
+      background: #1e293b; color: #e2e8f0; font-size: 0.82rem;
+      font-weight: 600; cursor: pointer; transition: all 0.15s;
+    ">⬡ Animation Editor</button>
+    <button class="tab-btn" data-view="view-schedule" style="
+      padding: 6px 18px; border-radius: 6px 6px 0 0;
+      border: 1px solid transparent; border-bottom: none;
+      background: transparent; color: #64748b; font-size: 0.82rem;
+      font-weight: 600; cursor: pointer; transition: all 0.15s;
+    ">🗓 Schedule Manager</button>
+  </nav>
+  <!-- ── Editor view (existing content) ──────────────────── -->
+  <div id="view-editor" style="padding-top: 44px;">
   <div id="app">
     <button id="fullscreen-btn" style="position: absolute; top: 10px; right: 10px; z-index: 1000; background: #2563eb; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer;">
       <i class="fas fa-expand"></i> Fullscreen
@@ -2171,5 +2193,518 @@
 
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     Close #view-editor wrapper opened after <body>
+═══════════════════════════════════════════════════════════ -->
+  </div><!-- /#app -->
+</div><!-- /#view-editor -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCHEDULE MANAGER VIEW
+═══════════════════════════════════════════════════════════ -->
+<div id="view-schedule" style="display:none; padding-top:44px; min-height:100vh; background:#0a0a0f; color:#e2e8f0; font-family:'Inter',sans-serif;">
+
+<style>
+/* ── Schedule Manager styles ── */
+#sched-header {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 20px; background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+}
+#sched-header h2 { margin: 0; font-size: 1.1rem; color: #f1f5f9; }
+.sched-ctrl { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.sched-btn {
+  padding: 6px 16px; border-radius: 6px; border: 1px solid #334155;
+  background: #1e293b; color: #e2e8f0; font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.sched-btn:hover { background: #334155; }
+.sched-btn.primary { background: #2563eb; border-color: #1d4ed8; color: #fff; }
+.sched-btn.primary:hover { background: #1d4ed8; }
+.sched-btn.danger  { background: #dc2626; border-color: #b91c1c; color: #fff; }
+.sched-btn.success { background: #16a34a; border-color: #15803d; color: #fff; }
+.sched-btn.success:hover { background: #15803d; }
+
+#sched-enabled-badge {
+  padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.04em; cursor: pointer; transition: all 0.2s;
+}
+#sched-enabled-badge.on  { background: #14532d; color: #4ade80; border: 1px solid #22c55e; }
+#sched-enabled-badge.off { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+
+/* Timeline */
+#sched-timeline-wrap {
+  overflow-x: auto; overflow-y: auto;
+  max-height: calc(100vh - 120px);
+  padding: 0 0 40px;
+}
+#sched-timeline {
+  display: grid;
+  grid-template-columns: 56px repeat(4, 1fr);
+  min-width: 600px;
+  position: relative;
+}
+.sched-day-header {
+  position: sticky; top: 0; z-index: 50;
+  background: #0f172a; border-bottom: 2px solid #2563eb;
+  padding: 8px 6px; text-align: center; font-size: 0.75rem; font-weight: 700;
+  color: #94a3b8;
+}
+.sched-day-header.today { color: #60a5fa; border-bottom-color: #60a5fa; }
+.sched-day-header.active-day { color: #4ade80; border-bottom-color: #22c55e; }
+.sched-time-col { font-size: 0.68rem; color: #475569; text-align: right; padding-right: 6px; }
+
+/* Each row = 30 min = ROW_H px */
+.sched-cell {
+  border-right: 1px solid #1e293b; border-bottom: 1px solid #1e293b;
+  position: relative; cursor: crosshair;
+  transition: background 0.1s;
+}
+.sched-cell:hover { background: rgba(37,99,235,0.08); }
+.sched-cell.hour-mark { border-top: 1px solid #1e293b; }
+.sched-cell.half-hour-mark { border-top: 1px dashed #0f172a; }
+.sched-time-label {
+  position: sticky; left: 0;
+  background: #0a0a0f;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  padding: 2px 6px 0 0; font-size: 0.68rem; color: #475569; pointer-events: none;
+}
+.sched-time-label.hour-label { color: #64748b; }
+
+/* Slot blocks */
+.sched-slot {
+  position: absolute; left: 3px; right: 3px;
+  border-radius: 5px; overflow: hidden;
+  cursor: pointer; z-index: 10;
+  display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+  padding: 3px 6px; box-sizing: border-box;
+  transition: filter 0.15s, transform 0.1s;
+  border-left: 3px solid rgba(255,255,255,0.3);
+}
+.sched-slot:hover { filter: brightness(1.15); transform: scaleX(0.99); }
+.sched-slot.active-slot { box-shadow: 0 0 0 2px #4ade80, 0 0 16px rgba(74,222,128,0.5); }
+.sched-slot-name { font-size: 0.72rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+.sched-slot-time { font-size: 0.62rem; opacity: 0.8; }
+
+/* Now marker */
+#sched-now-marker {
+  position: absolute; left: 0; right: 0; height: 2px;
+  background: #f43f5e; z-index: 20; pointer-events: none;
+}
+#sched-now-marker::before {
+  content: 'NOW';
+  position: absolute; left: 4px; top: -8px;
+  font-size: 0.58rem; color: #f43f5e; font-weight: 800; letter-spacing: 0.06em;
+}
+
+/* Modal */
+#sched-modal-bg {
+  display: none; position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);
+  align-items: center; justify-content: center;
+}
+#sched-modal-bg.open { display: flex; }
+#sched-modal {
+  background: #0f172a; border: 1px solid #1e293b; border-radius: 12px;
+  padding: 24px; min-width: 320px; max-width: 420px; width: 90%;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.8);
+}
+#sched-modal h3 { margin: 0 0 16px; font-size: 1rem; color: #f1f5f9; }
+.sched-field { margin-bottom: 14px; }
+.sched-field label { display: block; font-size: 0.74rem; color: #94a3b8; margin-bottom: 4px; font-weight: 600; }
+.sched-field input, .sched-field select {
+  width: 100%; box-sizing: border-box;
+  background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+  color: #e2e8f0; padding: 7px 10px; font-size: 0.82rem;
+}
+.sched-field input:focus, .sched-field select:focus { outline: 1px solid #2563eb; }
+.sched-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+
+/* Preset color palette */
+.preset-0 { background: linear-gradient(135deg,#16532d,#14532d); color: #4ade80; }
+.preset-1 { background: linear-gradient(135deg,#1e3a5f,#1d4ed8); color: #93c5fd; }
+.preset-2 { background: linear-gradient(135deg,#451a03,#b45309); color: #fcd34d; }
+</style>
+
+<!-- Header -->
+<div id="sched-header">
+  <h2>🗓 Schedule Manager</h2>
+  <label style="font-size:0.78rem;color:#94a3b8;">Festival start:</label>
+  <input id="sched-festival-start" type="date" style="
+    background:#1e293b;border:1px solid #334155;border-radius:6px;
+    color:#e2e8f0;padding:5px 10px;font-size:0.78rem;
+  ">
+  <div class="sched-ctrl">
+    <span id="sched-enabled-badge" class="off" title="Toggle schedule execution">⏸ Schedule OFF</span>
+    <button class="sched-btn" id="sched-add-btn">＋ Add Slot</button>
+    <button class="sched-btn primary" id="sched-save-btn">💾 Save</button>
+  </div>
+</div>
+
+<!-- Timeline -->
+<div id="sched-timeline-wrap">
+  <div id="sched-timeline"><!-- populated by JS --></div>
+</div>
+
+<!-- Slot modal -->
+<div id="sched-modal-bg">
+  <div id="sched-modal">
+    <h3 id="sched-modal-title">Add Time Slot</h3>
+    <div class="sched-field">
+      <label>Day</label>
+      <select id="sched-modal-day">
+        <option value="0">Day 1</option>
+        <option value="1">Day 2</option>
+        <option value="2">Day 3</option>
+        <option value="3">Day 4</option>
+      </select>
+    </div>
+    <div class="sched-field">
+      <label>Start time</label>
+      <input id="sched-modal-start" type="time" value="10:00">
+    </div>
+    <div class="sched-field">
+      <label>End time</label>
+      <input id="sched-modal-end" type="time" value="12:00">
+    </div>
+    <div class="sched-field">
+      <label>Animation</label>
+      <select id="sched-modal-anim">
+        <option value="0">Sync Pulse</option>
+        <option value="1">Ring Ripple</option>
+        <option value="2">Alternating Fan</option>
+      </select>
+    </div>
+    <div class="sched-modal-actions">
+      <button class="sched-btn danger" id="sched-modal-delete" style="display:none;">Delete</button>
+      <button class="sched-btn" id="sched-modal-cancel">Cancel</button>
+      <button class="sched-btn primary" id="sched-modal-ok">Save Slot</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const API = 'http://192.168.4.1';
+  const ROW_H = 28;   // px per 30-min row
+  const PRESET_NAMES = ['Sync Pulse', 'Ring Ripple', 'Alternating Fan'];
+  const PRESET_CLASSES = ['preset-0', 'preset-1', 'preset-2'];
+
+  let schedule = {
+    festival_start: null,
+    enabled: false,
+    slots: []
+  };
+  let editingSlotId = null;
+  let dragState = null;   // { day, startRow }
+  let todayDayIndex = null;
+  let nowMinutes = 0;
+
+  // ── helpers ────────────────────────────────────────────────
+  function minsToTime(m) {
+    const h = String(Math.floor(m / 60)).padStart(2,'0');
+    const mm = String(m % 60).padStart(2,'0');
+    return `${h}:${mm}`;
+  }
+  function timeToMins(t) {
+    const [h,m] = t.split(':').map(Number);
+    return h * 60 + m;
+  }
+  function rowToMins(row) { return row * 30; }
+  function minsToRow(m)   { return Math.floor(m / 30); }
+  function minsToTop(m)   { return (m / 30) * ROW_H; }  // continuous px
+  function genId()        { return Math.random().toString(36).slice(2,10); }
+  function dayLabel(i) {
+    if (!schedule.festival_start) return `Day ${i+1}`;
+    const d = new Date(schedule.festival_start + 'T00:00:00');
+    d.setDate(d.getDate() + i);
+    return d.toLocaleDateString('en-GB', {weekday:'short', month:'short', day:'numeric'});
+  }
+
+  // ── build timeline DOM ─────────────────────────────────────
+  function buildTimeline() {
+    const tl = document.getElementById('sched-timeline');
+    tl.innerHTML = '';
+
+    // Header row
+    const timeHead = document.createElement('div');
+    timeHead.className = 'sched-day-header';
+    timeHead.style.cssText = 'background:#0a0a0f;border:none;color:#1e293b;';
+    tl.appendChild(timeHead);
+
+    for (let d = 0; d < 4; d++) {
+      const h = document.createElement('div');
+      h.className = 'sched-day-header' + (d === todayDayIndex ? ' today' : '');
+      h.textContent = dayLabel(d);
+      tl.appendChild(h);
+    }
+
+    // Time rows (48 rows = 24 hours in 30-min steps)
+    const dayColumns = [[], [], [], []];  // collect cells per day for slot rendering
+
+    for (let row = 0; row < 48; row++) {
+      const mins = rowToMins(row);
+      const isHour = mins % 60 === 0;
+
+      // Time label
+      const tl_cell = document.createElement('div');
+      tl_cell.className = `sched-time-label${isHour ? ' hour-label' : ''}`;
+      tl_cell.style.height = ROW_H + 'px';
+      tl_cell.textContent = isHour ? minsToTime(mins) : '';
+      tl.appendChild(tl_cell);
+
+      // Day cells
+      for (let d = 0; d < 4; d++) {
+        const cell = document.createElement('div');
+        cell.className = `sched-cell${isHour ? ' hour-mark' : ' half-hour-mark'}`;
+        cell.style.height = ROW_H + 'px';
+        cell.dataset.day = d;
+        cell.dataset.row = row;
+
+        // Drag to create slot
+        cell.addEventListener('mousedown', e => {
+          if (e.button !== 0) return;
+          dragState = { day: d, startRow: row };
+          e.preventDefault();
+        });
+        cell.addEventListener('mouseup', e => {
+          if (!dragState || dragState.day !== d) return;
+          const endRow = row + 1;
+          openModal(null, d, rowToMins(dragState.startRow), rowToMins(endRow));
+          dragState = null;
+        });
+
+        tl.appendChild(cell);
+        dayColumns[d].push(cell);
+      }
+    }
+
+    // Render slot overlays
+    renderSlots();
+
+    // Now marker
+    renderNowMarker();
+  }
+
+  function renderSlots() {
+    // Remove old slot overlays
+    document.querySelectorAll('.sched-slot').forEach(el => el.remove());
+    const tl = document.getElementById('sched-timeline');
+    const tlRect = tl.getBoundingClientRect();
+
+    schedule.slots.forEach(slot => {
+      const d = slot.day;
+      if (d < 0 || d > 3) return;
+
+      // Find the column cell that is the reference for this day
+      // Column index = 1 + d  (0 = time labels)
+      // We'll use absolute positioning inside the timeline grid column
+      const topPx = minsToTop(slot.start_minutes);
+      const heightPx = minsToTop(slot.end_minutes) - topPx;
+      if (heightPx <= 0) return;
+
+      // We need to place the slot relative to the timeline grid
+      // Use a wrapper positioned relative to the day column
+      const el = document.createElement('div');
+      el.className = `sched-slot ${PRESET_CLASSES[slot.animation_index] ?? 'preset-0'}${slot.id === schedule.active_slot_id ? ' active-slot' : ''}`;
+      el.dataset.slotId = slot.id;
+
+      // Position: grid column starts after first column (56px time col)
+      // Each day column is (100% - 56px) / 4
+      // We use inline style with calc
+      const colW = `calc((100% - 56px) / 4)`;
+      el.style.cssText = `
+        position: absolute;
+        top: calc(${ROW_H}px + ${topPx}px);
+        left: calc(56px + ${d} * ${colW} + 3px);
+        width: calc(${colW} - 6px);
+        height: ${heightPx}px;
+      `;
+
+      el.innerHTML = `
+        <span class="sched-slot-name">${PRESET_NAMES[slot.animation_index] ?? 'Unknown'}</span>
+        <span class="sched-slot-time">${minsToTime(slot.start_minutes)}–${minsToTime(slot.end_minutes)}</span>
+      `;
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        openModal(slot.id, slot.day, slot.start_minutes, slot.end_minutes, slot.animation_index);
+      });
+      tl.appendChild(el);
+    });
+  }
+
+  function renderNowMarker() {
+    document.getElementById('sched-now-marker')?.remove();
+    if (todayDayIndex === null || todayDayIndex < 0 || todayDayIndex > 3) return;
+    const tl = document.getElementById('sched-timeline');
+    const topPx = ROW_H + minsToTop(nowMinutes);  // +ROW_H for header row
+    const colW = `calc((100% - 56px) / 4)`;
+    const marker = document.createElement('div');
+    marker.id = 'sched-now-marker';
+    marker.style.cssText = `
+      top: ${topPx}px;
+      left: calc(56px + ${todayDayIndex} * ${colW});
+      width: ${colW};
+    `;
+    tl.appendChild(marker);
+  }
+
+  // ── modal ──────────────────────────────────────────────────
+  function openModal(slotId, day, startMins, endMins, animIdx) {
+    editingSlotId = slotId;
+    document.getElementById('sched-modal-title').textContent = slotId ? 'Edit Time Slot' : 'Add Time Slot';
+    document.getElementById('sched-modal-day').value   = day ?? 0;
+    document.getElementById('sched-modal-start').value = minsToTime(startMins ?? 600);
+    document.getElementById('sched-modal-end').value   = minsToTime(endMins   ?? 720);
+    document.getElementById('sched-modal-anim').value  = animIdx ?? 0;
+    document.getElementById('sched-modal-delete').style.display = slotId ? '' : 'none';
+    document.getElementById('sched-modal-bg').classList.add('open');
+  }
+  function closeModal() {
+    document.getElementById('sched-modal-bg').classList.remove('open');
+    editingSlotId = null;
+  }
+
+  document.getElementById('sched-modal-cancel').addEventListener('click', closeModal);
+  document.getElementById('sched-modal-bg').addEventListener('click', e => {
+    if (e.target === document.getElementById('sched-modal-bg')) closeModal();
+  });
+
+  document.getElementById('sched-modal-ok').addEventListener('click', () => {
+    const day      = parseInt(document.getElementById('sched-modal-day').value);
+    const startM   = timeToMins(document.getElementById('sched-modal-start').value);
+    const endM     = timeToMins(document.getElementById('sched-modal-end').value);
+    const animIdx  = parseInt(document.getElementById('sched-modal-anim').value);
+    if (endM <= startM) { alert('End time must be after start time.'); return; }
+
+    if (editingSlotId) {
+      const slot = schedule.slots.find(s => s.id === editingSlotId);
+      if (slot) { slot.day = day; slot.start_minutes = startM; slot.end_minutes = endM; slot.animation_index = animIdx; }
+    } else {
+      schedule.slots.push({ id: genId(), day, start_minutes: startM, end_minutes: endM, animation_index: animIdx });
+    }
+    closeModal();
+    buildTimeline();
+  });
+
+  document.getElementById('sched-modal-delete').addEventListener('click', () => {
+    if (!editingSlotId) return;
+    schedule.slots = schedule.slots.filter(s => s.id !== editingSlotId);
+    closeModal();
+    buildTimeline();
+  });
+
+  // ── Add slot button ────────────────────────────────────────
+  document.getElementById('sched-add-btn').addEventListener('click', () => openModal(null, 0, 600, 720, 0));
+
+  // ── Festival start date ───────────────────────────────────
+  document.getElementById('sched-festival-start').addEventListener('change', e => {
+    schedule.festival_start = e.target.value;
+    buildTimeline();
+  });
+
+  // ── Enable badge toggle ────────────────────────────────────
+  const badge = document.getElementById('sched-enabled-badge');
+  badge.addEventListener('click', async () => {
+    const path = schedule.enabled ? '/schedule/disable' : '/schedule/enable';
+    try {
+      const r = await fetch(API + path, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+      if (r.ok) {
+        const d = await r.json();
+        schedule.enabled = d.enabled;
+        updateBadge();
+      }
+    } catch (e) { alert('Server unreachable: ' + e.message); }
+  });
+  function updateBadge() {
+    badge.textContent = schedule.enabled ? '▶ Schedule ON' : '⏸ Schedule OFF';
+    badge.className   = schedule.enabled ? 'on' : 'off';
+  }
+
+  // ── Save ──────────────────────────────────────────────────
+  document.getElementById('sched-save-btn').addEventListener('click', async () => {
+    try {
+      const payload = { festival_start: schedule.festival_start, slots: schedule.slots, enabled: schedule.enabled };
+      const r = await fetch(API + '/schedule', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      });
+      if (r.ok) {
+        const d = await r.json();
+        showToast(`Saved ${d.slot_count} slot(s) ✓`);
+      } else {
+        alert('Save failed: ' + r.status);
+      }
+    } catch(e) { alert('Server unreachable: ' + e.message); }
+  });
+
+  // ── Load from server ──────────────────────────────────────
+  async function loadSchedule() {
+    try {
+      const r = await fetch(API + '/schedule');
+      if (!r.ok) return;
+      const d = await r.json();
+      schedule.festival_start = d.festival_start;
+      schedule.slots          = d.slots ?? [];
+      schedule.enabled        = d.enabled ?? false;
+      schedule.active_slot_id = d.active_slot_id;
+      todayDayIndex           = d.today_day_index;
+      nowMinutes              = d.now_minutes ?? 0;
+
+      if (d.festival_start) document.getElementById('sched-festival-start').value = d.festival_start;
+
+      // Populate preset dropdown from server
+      if (d.presets?.length) {
+        const sel = document.getElementById('sched-modal-anim');
+        sel.innerHTML = d.presets.map((p,i) => `<option value="${i}">${p.name}</option>`).join('');
+      }
+      updateBadge();
+      buildTimeline();
+    } catch(e) {
+      console.warn('[Schedule] Could not load:', e.message);
+      buildTimeline(); // still render empty
+    }
+  }
+
+  // ── Toast ─────────────────────────────────────────────────
+  function showToast(msg) {
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = `
+      position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+      background:#1e293b;color:#4ade80;border:1px solid #22c55e;
+      border-radius:8px;padding:10px 20px;font-size:0.82rem;font-weight:700;
+      z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.5);
+    `;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  // ── Tab switching ─────────────────────────────────────────
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.view;
+      document.getElementById('view-editor').style.display   = target === 'view-editor'   ? '' : 'none';
+      document.getElementById('view-schedule').style.display = target === 'view-schedule' ? '' : 'none';
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        const active = b.dataset.view === target;
+        b.style.background = active ? '#1e293b' : 'transparent';
+        b.style.color       = active ? '#e2e8f0' : '#64748b';
+        b.style.border      = active ? '1px solid #334155' : '1px solid transparent';
+        b.classList.toggle('active', active);
+      });
+      if (target === 'view-schedule') loadSchedule();
+    });
+  });
+
+  // Load schedule data whenever the page loads into this tab
+  // (will be triggered by tab click, but also pre-warm on view show)
+  if (document.getElementById('view-schedule').style.display !== 'none') {
+    loadSchedule();
+  }
+})();
+</script>
+
+</div><!-- /#view-schedule -->
 </body>
 </html>
