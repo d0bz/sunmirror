@@ -42,6 +42,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests to play animations"""
+        global current_process, animation_running, current_animation_file
         if self.path == '/play_animation':
             try:
                 # Get content length
@@ -140,7 +141,6 @@ class AnimationServer(SimpleHTTPRequestHandler):
                     # For long-running animations, don't wait for completion
                     if loop:
                         # Update shared state
-                        global animation_running, current_animation_file
                         animation_running = True
                         current_animation_file = None  # custom frames, not a named file
 
@@ -241,7 +241,6 @@ class AnimationServer(SimpleHTTPRequestHandler):
             When toggled OFF → kill any running animation and move all motors to initial angle.
             Body (optional JSON): { "file": "<path_to_animation_json>" }
             """
-            global animation_running, current_animation_file
             try:
                 # Try to read an optional body
                 content_length = int(self.headers.get('Content-Length', 0))
@@ -466,9 +465,9 @@ class AnimationServer(SimpleHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET requests - serve static files or handle API endpoints"""
+        global current_process, animation_running, current_animation_file
         # Check for kill endpoint
         if self.path == '/kill_animation':
-            global animation_running
             killed = self._kill_existing_process()
             animation_running = False
             
@@ -497,7 +496,6 @@ class AnimationServer(SimpleHTTPRequestHandler):
         
         # Check for animation status endpoint
         if self.path == '/animation_status':
-            global current_process
             # Also reflect whether the subprocess is still alive
             is_alive = (
                 animation_running
