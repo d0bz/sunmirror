@@ -2250,7 +2250,26 @@ const API_BASE = window.location.origin;
   border-bottom: 1px solid #1e293b;
 }
 #sched-header h2 { margin: 0; font-size: 1.1rem; color: #f1f5f9; }
-.sched-ctrl { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+#sched-server-clock {
+  display: flex; flex-direction: column; align-items: flex-end;
+  margin-left: auto;
+  line-height: 1.2;
+}
+#sched-server-clock .clock-time {
+  font-family: 'Courier New', monospace;
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #60a5fa;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 12px rgba(96,165,250,0.5);
+}
+#sched-server-clock .clock-label {
+  font-size: 0.62rem;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.sched-ctrl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sched-btn {
   padding: 6px 16px; border-radius: 6px; border: 1px solid #334155;
   background: #1e293b; color: #e2e8f0; font-size: 0.78rem; font-weight: 600;
@@ -2390,6 +2409,10 @@ const API_BASE = window.location.origin;
     <button class="sched-btn primary" id="sched-save-btn">💾 Save</button>
     <button class="sched-btn danger" id="sched-clear-btn" title="Delete all slots and reset dates">🗑 Clear All</button>
   </div>
+  <div id="sched-server-clock">
+    <span class="clock-time" id="sched-clock-time">--:--:--</span>
+    <span class="clock-label">Mirror server time</span>
+  </div>
 </div>
 
 <!-- Timeline -->
@@ -2448,6 +2471,29 @@ const API_BASE = window.location.origin;
   let dragState = null;   // { day, startRow }
   let todayDayIndex = null;
   let nowMinutes = 0;
+  let _clockBase = null;      // { serverMs, clientMs } — for local ticking
+  let _clockInterval = null;
+
+  // ── Server clock ───────────────────────────────────────────
+  function seedClock(serverTimeStr) {
+    // serverTimeStr = "YYYY-MM-DDTHH:MM:SS" (server local time, no tz)
+    if (!serverTimeStr) return;
+    const serverMs = new Date(serverTimeStr).getTime();
+    _clockBase = { serverMs, clientMs: Date.now() };
+    if (_clockInterval) clearInterval(_clockInterval);
+    _clockInterval = setInterval(tickClock, 1000);
+    tickClock();
+  }
+  function tickClock() {
+    if (!_clockBase) return;
+    const elapsed = Date.now() - _clockBase.clientMs;
+    const now = new Date(_clockBase.serverMs + elapsed);
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const ss = String(now.getSeconds()).padStart(2,'0');
+    const el = document.getElementById('sched-clock-time');
+    if (el) el.textContent = `${hh}:${mm}:${ss}`;
+  }
 
   // ── helpers ────────────────────────────────────────────────
   function minsToTime(m) {
@@ -2781,6 +2827,7 @@ const API_BASE = window.location.origin;
       schedule.active_slot_id = d.active_slot_id;
       todayDayIndex           = d.today_day_index;
       nowMinutes              = d.now_minutes ?? 0;
+      seedClock(d.server_time);
 
       if (d.festival_start) document.getElementById('sched-festival-start').value = d.festival_start;
       if (d.festival_end)   {

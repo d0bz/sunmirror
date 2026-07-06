@@ -381,20 +381,25 @@ class MainController(MovementGenerator):
                 table.last_position = target_angles[name]
 
 
-    def play_frame_path(self, frame_path):
+    def play_frame_path(self, frame_path, frame_delay_s=0.0):
         """
         Play a path of frames, where each frame is a dict of table_name:angle pairs.
-        
+
         Args:
-            frame_path: List of frames, where each frame is a dict mapping table names to angles
+            frame_path: List of frames mapping table names to angles
+            frame_delay_s: Extra sleep in seconds between each path-frame (default 0).
+                           Use to slow down animations (e.g. 0.02 for 20ms per frame).
         """
         for frame_idx, frame in enumerate(frame_path, 1):
             if self.debug:
                 print(f"[DEBUG] Playing frame {frame_idx}/{len(frame_path)}")
                 print(f"[DEBUG] Frame content: {frame}")
-                
+
             # Move each table in the frame
             self.interpolate_servo_moves(frame, steps=1, delay=0.02)
+
+            if frame_delay_s > 0:
+                time.sleep(frame_delay_s)
 
             if self.debug:
                 print(f"[DEBUG] Frame {frame_idx} complete")

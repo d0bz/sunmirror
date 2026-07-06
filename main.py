@@ -171,10 +171,16 @@ def load_and_play_animation(file_path, controller, all_mirrors, step_size=1.0):
         # Convert animation frames to a path with the specified step size
         path = MovementGenerator.generate_path_from_animation_frames(animation_data, step_size)
         print(f"Generated path with {len(path)} frames")
-        
+
+        # Read optional per-frame delay from animation metadata (first frame)
+        frame_delay_ms = animation_data[0].get('frame_delay_ms', 0) if animation_data else 0
+        frame_delay_s  = frame_delay_ms / 1000.0
+        if frame_delay_ms:
+            print(f"Animation requests {frame_delay_ms}ms delay per frame → total ~{len(path)*frame_delay_s/60:.1f} min")
+
         # Play the path
         print("Playing animation...")
-        controller.play_frame_path(path)
+        controller.play_frame_path(path, frame_delay_s=frame_delay_s)
         print("Animation playback complete")
         
         return True
