@@ -146,20 +146,6 @@ def _get_all_animations():
     return result
 
 class AnimationServer(SimpleHTTPRequestHandler):
-    def do_GET(self):
-        """Handle GET requests - serve static files or API documentation"""
-        self.path = self.path.split('?')[0]  # Remove query parameters
-        
-        # Handle API documentation routes
-        if self.path == '/api' or self.path == '/api/':
-            # Redirect to API documentation page
-            self.send_response(302)
-            self.send_header('Location', '/api-docs.html')
-            self.end_headers()
-            return
-        
-        return SimpleHTTPRequestHandler.do_GET(self)
-    
     def do_POST(self):
         """Handle POST requests to play animations"""
         global current_process, animation_running, current_animation_file, current_animation_index, schedule_enabled, schedule_data, schedule_started_by_runner
@@ -763,6 +749,17 @@ class AnimationServer(SimpleHTTPRequestHandler):
     def do_GET(self):
         """Handle GET requests - serve static files or handle API endpoints"""
         global current_process, animation_running, current_animation_file, current_animation_index
+
+        # Strip query string first so all route checks work regardless of cache-busting params
+        self.path = self.path.split('?')[0]
+
+        # /api redirect
+        if self.path in ('/api', '/api/'):
+            self.send_response(302)
+            self.send_header('Location', '/api-docs.html')
+            self.end_headers()
+            return
+
         # Check for kill endpoint
         if self.path == '/kill_animation':
             killed = self._kill_existing_process()
@@ -876,8 +873,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
             self.wfile.write(resp)
             return
 
-        # For all other paths, use the default handler
-        self.path = self.path.split('?')[0]  # Remove query parameters
+        # For all other paths, use the default static-file handler
         return SimpleHTTPRequestHandler.do_GET(self)
     
     def do_OPTIONS(self):
