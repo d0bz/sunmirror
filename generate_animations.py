@@ -7,7 +7,7 @@ import json, math, os
 OUT_DIR = os.path.join(os.path.dirname(__file__), "animation-tool")
 N = 54          # total mirrors
 CENTER = 90
-AMP = 45        # ±45° from center
+AMP = 40        # ±40° from center
 
 def mirror_ids():
     return [str(i) for i in range(1, N + 1)]

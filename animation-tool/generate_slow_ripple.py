@@ -34,14 +34,14 @@ RING_2 = [str(i) for i in range(25, 55)]  # outer   (30 sectors)
 RINGS  = [RING_0, RING_1, RING_2]
 
 # ── Timing ────────────────────────────────────────────────────────────────────
-FRAME_DELAY_MS   = 20          # per-path-frame sleep (controlled by main.py)
+FRAME_DELAY_MS   = 360         # per-path-frame sleep (controlled by main.py)
 EXPAND_MINUTES   = 2
 RETRACT_MINUTES  = 4
 STAGGER_FRACTION = 1 / 3      # each ring starts this fraction into the phase
 
-# Derived
-EXPAND_FRAMES    = int(EXPAND_MINUTES  * 60 * 1000 / FRAME_DELAY_MS)   # 6000
-RETRACT_FRAMES   = int(RETRACT_MINUTES * 60 * 1000 / FRAME_DELAY_MS)   # 12000
+# Derived — targeting ~333 + ~667 = ~1000 frames total
+EXPAND_FRAMES    = int(EXPAND_MINUTES  * 60 * 1000 / FRAME_DELAY_MS)   # ~333
+RETRACT_FRAMES   = int(RETRACT_MINUTES * 60 * 1000 / FRAME_DELAY_MS)   # ~667
 
 START_ANGLE = 90.0
 PEAK_ANGLE  = 180.0

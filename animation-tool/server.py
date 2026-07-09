@@ -96,6 +96,25 @@ DEFAULT_LOOP_ANIMATION = ANIMATION_PRESETS[0]["file"]  # fallback / startup
 # Schedule globals
 # ---------------------------------------------------------------------------
 SCHEDULE_FILE = os.path.join(_SERVER_DIR, 'schedule.json')
+SCHEDULE_LOG  = os.path.join(_SERVER_DIR, 'logs', 'schedule.log')
+
+def _sched_log(msg: str):
+    """Append a timestamped line to logs/schedule.log, keeping last 500 lines."""
+    try:
+        os.makedirs(os.path.dirname(SCHEDULE_LOG), exist_ok=True)
+        line = f"[{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n"
+        # Append
+        with open(SCHEDULE_LOG, 'a') as f:
+            f.write(line)
+        # Trim to last 500 lines
+        with open(SCHEDULE_LOG, 'r') as f:
+            lines = f.readlines()
+        if len(lines) > 500:
+            with open(SCHEDULE_LOG, 'w') as f:
+                f.writelines(lines[-500:])
+    except Exception as e:
+        print(f"[Schedule] Log write error: {e}")
+
 schedule_data = {
     "festival_start": None,   # ISO date string "YYYY-MM-DD"
     "festival_end":   None,   # ISO date string "YYYY-MM-DD"
@@ -873,6 +892,42 @@ class AnimationServer(SimpleHTTPRequestHandler):
             self.wfile.write(resp)
             return
 
+        # GET /schedule/log – tail the schedule debug log
+        if self.path.startswith('/schedule/log'):
+            try:
+                # Allow ?lines=N
+                n_lines = 100
+                if '?' in self.path:
+                    qs = self.path.split('?', 1)[1]
+                    for part in qs.split('&'):
+                        if part.startswith('lines='):
+                            try:
+                                n_lines = int(part.split('=', 1)[1])
+                            except ValueError:
+                                pass
+                if os.path.isfile(SCHEDULE_LOG):
+                    with open(SCHEDULE_LOG, 'r') as f:
+                        all_lines = f.readlines()
+                    tail = ''.join(all_lines[-n_lines:])
+                else:
+                    tail = '(log file does not exist yet — no tick has run)\n'
+                body = tail.encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'text/plain; charset=utf-8')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                err = str(e).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-type', 'text/plain')
+                self.send_header('Content-Length', str(len(err)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(err)
+            return
+
         # For all other paths, use the default static-file handler
         return SimpleHTTPRequestHandler.do_GET(self)
     
@@ -957,6 +1012,69 @@ def play_animation_from_file(animation_file=None, wait_for_completion=False, ful
     else:
         print(f"Animation file not found: {animation_path}")
         return None
+
+# ---------------------------------------------------------------------------
+# Home-position helper
+# ---------------------------------------------------------------------------
+
+# All 54 mirror names in the same order that main.py/setup_mirrors() uses.
+_INNER_COUNT  = 6
+_MIDDLE_COUNT = 18
+_OUTER_COUNT  = 30
+_ALL_MIRROR_NAMES = (
+    [f"inner{i}"  for i in range(1, _INNER_COUNT  + 1)] +
+    [f"middle{i}" for i in range(1, _MIDDLE_COUNT + 1)] +
+    [f"outer{i}"  for i in range(1, _OUTER_COUNT  + 1)]
+)
+
+def _play_home_position():
+    """Move all mirrors to the initial position (90 degrees) by playing a
+    single-frame non-looping animation and waiting for it to complete."""
+    try:
+        _sched_log("[Home] Moving all mirrors to 90° (home position)")
+        print("[Home] Moving all mirrors to 90° (home position)")
+
+        # Build a single animation frame with every mirror at 90°
+        home_frame = [{"angles": {name: 90.0 for name in _ALL_MIRROR_NAMES}}]
+
+        # Write to a temp file
+        temp_fd, temp_path = tempfile.mkstemp(suffix='_home.json')
+        try:
+            with os.fdopen(temp_fd, 'w') as tf:
+                json.dump(home_frame, tf)
+
+            if SIMULATION_MODE:
+                main_py_path = _SIM_MAIN_PATH
+            else:
+                main_py_path = '/home/pi/sunmirror/main.py'
+                if not os.path.exists(main_py_path):
+                    main_py_path = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        'main.py'
+                    )
+
+            cmd = [sys.executable, main_py_path, '--file', temp_path, '--step-size', '1.0']
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=os.setsid,
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            )
+            _sched_log(f"[Home] Home-position process PID {proc.pid} started, waiting...")
+            proc.wait(timeout=30)  # Should complete quickly — one frame
+            _sched_log(f"[Home] Home-position process exited (rc={proc.returncode})")
+            print(f"[Home] Home-position complete (rc={proc.returncode})")
+        finally:
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
+    except Exception as e:
+        _sched_log(f"[Home] ERROR moving to home position: {e}")
+        print(f"[Home] ERROR: {e}")
+        traceback.print_exc()
+
 
 def play_startup_animation():
     """Play the start-wave.json animation on server startup"""
@@ -1120,32 +1238,83 @@ def _save_schedule():
 
 def _get_active_slot():
     """Return the slot that should be playing right now, or None."""
-    if not schedule_enabled or not schedule_data.get('festival_start'):
+    if not schedule_enabled:
+        _sched_log("_get_active_slot: schedule is DISABLED — skipping")
+        return None
+    if not schedule_data.get('festival_start'):
+        _sched_log("_get_active_slot: no festival_start set — skipping")
         return None
     try:
         festival_start = dt.date.fromisoformat(schedule_data['festival_start'])
-    except Exception:
+    except Exception as e:
+        _sched_log(f"_get_active_slot: bad festival_start value — {e}")
         return None
+
+    # Compute the last valid day from festival_end (inclusive), falling back to 3 (4 days)
+    try:
+        festival_end = dt.date.fromisoformat(schedule_data['festival_end'])
+        max_day_index = (festival_end - festival_start).days
+    except Exception:
+        max_day_index = 3  # default: 4-day window
 
     now = dt.datetime.now()
     today = now.date()
     day_index = (today - festival_start).days  # 0-based
-    if day_index < 0 or day_index > 3:
-        return None  # outside festival window
-
     now_minutes = now.hour * 60 + now.minute
+
+    _sched_log(
+        f"_get_active_slot: today={today}, day_index={day_index} (max={max_day_index}), "
+        f"now={now.strftime('%H:%M')} ({now_minutes} min), "
+        f"slots_total={len(schedule_data.get('slots', []))}"
+    )
+
+    if day_index < 0 or day_index > max_day_index:
+        _sched_log(f"_get_active_slot: day_index {day_index} outside window [0..{max_day_index}] — no match")
+        return None
+
     for slot in schedule_data.get('slots', []):
-        if slot.get('day') == day_index:
-            start_m = slot.get('start_minutes', 0)
-            end_m   = slot.get('end_minutes', 0)
+        s_day   = slot.get('day')
+        start_m = slot.get('start_minutes', 0)
+        end_m   = slot.get('end_minutes', 0)
+        anim    = slot.get('animation_file') or f"index:{slot.get('animation_index','?')}"
+        _sched_log(
+            f"  checking slot id={slot.get('id','?')} day={s_day} "
+            f"{start_m//60:02d}:{start_m%60:02d}–{end_m//60:02d}:{end_m%60:02d} anim={anim}"
+        )
+        if s_day == day_index:
             if start_m <= now_minutes < end_m:
+                _sched_log(f"  → MATCH: slot {slot.get('id','?')}")
                 return slot
+            else:
+                _sched_log(f"  → time {now_minutes} not in [{start_m}, {end_m})")
+        else:
+            _sched_log(f"  → day mismatch (slot day={s_day}, today={day_index})")
+
+    _sched_log("_get_active_slot: no matching slot found")
     return None
 
 def _schedule_tick():
     """Check the schedule and start/stop animation accordingly."""
     global animation_running, current_animation_file, current_animation_index
     global schedule_started_by_runner, current_process
+
+    proc_alive = (current_process is not None and current_process.poll() is None)
+    _sched_log(
+        f"--- TICK --- animation_running={animation_running}, "
+        f"proc_alive={proc_alive}, "
+        f"schedule_started_by_runner={schedule_started_by_runner}, "
+        f"current_file={os.path.basename(current_animation_file) if current_animation_file else 'None'}"
+    )
+
+    # Self-heal: if the process has exited externally, clear the stale flag
+    if animation_running and not proc_alive:
+        msg = "[Schedule] Process exited externally — resetting animation_running"
+        print(msg)
+        _sched_log(msg)
+        animation_running = False
+        if schedule_started_by_runner:
+            current_animation_file = None
+            schedule_started_by_runner = False
 
     slot = _get_active_slot()
     if slot:
@@ -1158,34 +1327,55 @@ def _schedule_tick():
                 anim_file = all_anims[idx]['file']
                 anim_name = all_anims[idx]['name']
             else:
+                _sched_log(f"Slot has bad animation_index={idx}, skipping")
                 return  # bad index, skip
         else:
             anim_name = os.path.splitext(os.path.basename(anim_file))[0]
 
+        _sched_log(
+            f"Active slot found: {anim_name} | animation_running={animation_running}, "
+            f"current_file={os.path.basename(current_animation_file) if current_animation_file else 'None'}, "
+            f"target_file={os.path.basename(anim_file)}"
+        )
+
         if not animation_running or current_animation_file != anim_file:
             # Need to start or switch
             if animation_running:
+                _sched_log(f"Stopping current animation to switch to: {anim_name}")
                 try:
                     os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _sched_log(f"  kill error: {e}")
+            _sched_log(f"Starting animation: {anim_file}")
             process = play_animation_from_file(full_path=anim_file, loop=True)
             if process:
                 animation_running = True
                 current_animation_file = anim_file
                 schedule_started_by_runner = True
-                print(f"[Schedule] Started: {anim_name}")
+                msg = f"[Schedule] Started: {anim_name} (PID {process.pid})"
+                print(msg)
+                _sched_log(msg)
+            else:
+                _sched_log(f"ERROR: play_animation_from_file returned None for {anim_file}")
+        else:
+            _sched_log(f"Correct animation already running ({anim_name}), no action needed")
     else:
+        _sched_log("No active slot right now")
         # No active slot → stop only if we started it
         if animation_running and schedule_started_by_runner:
+            _sched_log("Stopping animation (end of slot)")
             try:
                 os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
-            except Exception:
-                pass
+            except Exception as e:
+                _sched_log(f"  kill error: {e}")
             animation_running = False
             current_animation_file = None
             schedule_started_by_runner = False
-            print("[Schedule] Stopped (end of slot)")
+            msg = "[Schedule] Stopped (end of slot)"
+            print(msg)
+            _sched_log(msg)
+            # Move all mirrors back to the initial (home) position of 90°
+            _play_home_position()
 
 def _start_schedule_thread():
     """Start the background schedule runner thread (ticks every 30 s)."""

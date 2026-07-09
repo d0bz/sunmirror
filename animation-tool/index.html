@@ -2304,8 +2304,10 @@ const API_BASE = window.location.origin;
 .sched-day-header {
   position: sticky; top: 0; z-index: 50;
   background: #0f172a; border-bottom: 2px solid #2563eb;
-  padding: 8px 6px; text-align: center; font-size: 0.75rem; font-weight: 700;
-  color: #94a3b8;
+  height: 40px; box-sizing: border-box;
+  padding: 0 6px; line-height: 40px;
+  text-align: center; font-size: 0.75rem; font-weight: 700;
+  color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sched-day-header.today { color: #60a5fa; border-bottom-color: #60a5fa; }
 .sched-day-header.active-day { color: #4ade80; border-bottom-color: #22c55e; }
@@ -2314,6 +2316,7 @@ const API_BASE = window.location.origin;
 /* Each row = 30 min = ROW_H px */
 .sched-cell {
   border-right: 1px solid #1e293b; border-bottom: 1px solid #1e293b;
+  box-sizing: border-box;
   position: relative; cursor: crosshair;
   transition: background 0.1s;
 }
@@ -2323,6 +2326,7 @@ const API_BASE = window.location.origin;
 .sched-time-label {
   position: sticky; left: 0;
   background: #0a0a0f;
+  box-sizing: border-box;
   display: flex; align-items: flex-start; justify-content: flex-end;
   padding: 2px 6px 0 0; font-size: 0.68rem; color: #475569; pointer-events: none;
 }
@@ -2454,12 +2458,76 @@ const API_BASE = window.location.origin;
   </div>
 </div>
 
+<!-- Schedule Debug Log panel -->
+<div id="sched-log-panel" style="
+  margin: 12px 16px 0;
+  background: #0d1117;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  overflow: hidden;
+">
+  <div id="sched-log-header" style="
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; cursor: pointer;
+    background: #111827; border-bottom: 1px solid #1e293b;
+    user-select: none;
+  " onclick="toggleSchedLog()">
+    <span style="font-size:0.8rem; font-weight:700; color:#94a3b8; letter-spacing:0.05em;">🪵 SCHEDULE DEBUG LOG</span>
+    <span id="sched-log-toggle-icon" style="margin-left:auto; color:#475569; font-size:0.75rem;">▼ show</span>
+    <button onclick="event.stopPropagation(); refreshSchedLog()" style="
+      background:#1e293b; border:1px solid #334155; border-radius:5px;
+      color:#94a3b8; padding:3px 10px; font-size:0.72rem; cursor:pointer;
+    ">⟳ Refresh</button>
+    <span id="sched-log-ts" style="font-size:0.65rem; color:#475569;"></span>
+  </div>
+  <div id="sched-log-body" style="display:none; padding:10px 14px;">
+    <pre id="sched-log-content" style="
+      margin:0; font-size:0.68rem; line-height:1.55;
+      color:#94a3b8; white-space:pre-wrap; word-break:break-all;
+      max-height:260px; overflow-y:auto;
+      font-family:'JetBrains Mono','Fira Code',monospace;
+    ">(click Refresh to load log)</pre>
+  </div>
+</div>
+
 <script>
 (function() {
   const API = API_BASE;
-  const ROW_H = 28;   // px per 30-min row
+  const ROW_H    = 28;  // px per 30-min row
+  const HEADER_H = 40;  // px — must match .sched-day-header { height }
   const PRESET_NAMES = ['Sync Pulse', 'Ring Ripple', 'Alternating Fan'];
   const PRESET_CLASSES = ['preset-0', 'preset-1', 'preset-2'];
+
+  // ── Schedule log helpers ──────────────────────────────────────
+  let _logOpen = false;
+  let _logInterval = null;
+
+  window.toggleSchedLog = function() {
+    _logOpen = !_logOpen;
+    document.getElementById('sched-log-body').style.display = _logOpen ? '' : 'none';
+    document.getElementById('sched-log-toggle-icon').textContent = _logOpen ? '▲ hide' : '▼ show';
+    if (_logOpen) {
+      refreshSchedLog();
+      _logInterval = setInterval(refreshSchedLog, 10000);
+    } else {
+      clearInterval(_logInterval);
+    }
+  };
+
+  window.refreshSchedLog = async function() {
+    try {
+      const r = await fetch(API + '/schedule/log?lines=80');
+      const text = await r.text();
+      const pre = document.getElementById('sched-log-content');
+      pre.textContent = text || '(empty)';
+      // Auto-scroll to bottom
+      pre.scrollTop = pre.scrollHeight;
+      const ts = new Date().toLocaleTimeString();
+      document.getElementById('sched-log-ts').textContent = `updated ${ts}`;
+    } catch(e) {
+      document.getElementById('sched-log-content').textContent = `Error: ${e.message}`;
+    }
+  };
 
   let schedule = {
     festival_start: null,
@@ -2493,6 +2561,12 @@ const API_BASE = window.location.origin;
     const ss = String(now.getSeconds()).padStart(2,'0');
     const el = document.getElementById('sched-clock-time');
     if (el) el.textContent = `${hh}:${mm}:${ss}`;
+    // Keep the NOW marker in sync — update whenever the minute changes
+    const live = now.getHours() * 60 + now.getMinutes();
+    if (live !== nowMinutes) {
+      nowMinutes = live;
+      renderNowMarker();
+    }
   }
 
   // ── helpers ────────────────────────────────────────────────
@@ -2606,7 +2680,6 @@ const API_BASE = window.location.origin;
     // Remove old slot overlays
     document.querySelectorAll('.sched-slot').forEach(el => el.remove());
     const tl = document.getElementById('sched-timeline');
-    const tlRect = tl.getBoundingClientRect();
 
     schedule.slots.forEach(slot => {
       const d = slot.day;
@@ -2627,7 +2700,7 @@ const API_BASE = window.location.origin;
       const colW = `calc((100% - 56px) / ${numDays()})`;
       el.style.cssText = `
         position: absolute;
-        top: calc(${ROW_H}px + ${topPx}px);
+        top: calc(${HEADER_H}px + ${topPx}px);
         left: calc(56px + ${d} * ${colW} + 3px);
         width: calc(${colW} - 6px);
         height: ${heightPx}px;
@@ -2650,7 +2723,7 @@ const API_BASE = window.location.origin;
     document.getElementById('sched-now-marker')?.remove();
     if (todayDayIndex === null || todayDayIndex < 0 || todayDayIndex >= numDays()) return;
     const tl = document.getElementById('sched-timeline');
-    const topPx = ROW_H + minsToTop(nowMinutes);  // +ROW_H for header row
+    const topPx = HEADER_H + minsToTop(nowMinutes);
     const colW = `calc((100% - 56px) / ${numDays()})`;
     const marker = document.createElement('div');
     marker.id = 'sched-now-marker';
@@ -2838,10 +2911,24 @@ const API_BASE = window.location.origin;
 
       updateBadge();
       buildTimeline();
+      // Scroll the NOW marker into view (centered)
+      scrollToNow();
     } catch(e) {
       console.warn('[Schedule] Could not load:', e.message);
       buildTimeline(); // still render empty
     }
+  }
+
+  function scrollToNow() {
+    if (todayDayIndex === null) return;
+    const wrap = document.getElementById('sched-timeline-wrap');
+    if (!wrap) return;
+    requestAnimationFrame(() => {
+      const nowTop = HEADER_H + minsToTop(nowMinutes);
+      // Center the NOW line in the visible area
+      const targetScroll = nowTop - wrap.clientHeight / 2;
+      wrap.scrollTop = Math.max(0, targetScroll);
+    });
   }
 
   // ── Toast ─────────────────────────────────────────────────
@@ -2899,14 +2986,24 @@ const API_BASE = window.location.origin;
   box-shadow:0 32px 80px rgba(0,0,0,0.9); overflow:hidden;
 ">
   <!-- Modal header -->
-  <div style="display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid #1e293b; flex-shrink:0;">
+  <div style="display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid #1e293b; flex-shrink:0; flex-wrap:wrap;">
     <span style="font-size:1.1rem; font-weight:700; color:#f1f5f9;">🎬 Animation Library</span>
     <span id="lib-count" style="font-size:0.72rem; color:#64748b; background:#1e293b; padding:2px 8px; border-radius:10px;"></span>
+    <!-- Upload JSON button -->
+    <button id="lib-upload-btn" title="Upload animation JSON file to server" style="
+      margin-left:auto;
+      background:#1e3a5f; border:1px solid #2563eb; color:#93c5fd;
+      border-radius:7px; padding:5px 13px; font-size:0.75rem; font-weight:700;
+      cursor:pointer; display:flex; align-items:center; gap:5px;
+      transition:background 0.15s;
+    ">⬆ Upload JSON</button>
+    <input type="file" id="lib-upload-input" accept=".json" multiple style="display:none;">
     <button id="lib-close" style="
-      margin-left:auto; background:transparent; border:none; color:#64748b;
+      background:transparent; border:none; color:#64748b;
       font-size:1.3rem; cursor:pointer; line-height:1; padding:4px 8px;
     ">✕</button>
   </div>
+
   <!-- Animation list -->
   <div id="lib-list" style="overflow-y:auto; flex:1; padding:12px 16px; display:flex; flex-direction:column; gap:8px;">
     <div style="color:#475569; text-align:center; padding:40px 0;">Loading…</div>
@@ -3087,6 +3184,42 @@ const API_BASE = window.location.origin;
     if (e.target === document.getElementById('lib-modal-bg')) closeLibrary();
   });
   document.getElementById('open-library').addEventListener('click', openLibrary);
+
+  // ── Upload JSON files directly to server ──────────────────
+  document.getElementById('lib-upload-btn').addEventListener('click', () => {
+    document.getElementById('lib-upload-input').click();
+  });
+  document.getElementById('lib-upload-input').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    let succeeded = 0, failed = 0;
+    for (const file of files) {
+      try {
+        const text = await file.text();
+        const frames = JSON.parse(text);
+        if (!Array.isArray(frames)) throw new Error('JSON must be an array of frames');
+        const name = file.name.replace(/\.json$/i, '');
+        const r = await fetch(API + '/animations', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name, frames })
+        });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.message || r.status); }
+        succeeded++;
+        const d = await r.json();
+        libraryAnims = d.animations;
+      } catch (err) {
+        failed++;
+        showToastGlobal(`Upload failed for "${file.name}": ${err.message}`, false);
+      }
+    }
+    e.target.value = ''; // reset so same file can be re-picked
+    if (succeeded > 0) {
+      renderLibrary(libraryAnims);
+      updateScheduleAnimPicker(libraryAnims);
+      showToastGlobal(`Uploaded ${succeeded} animation${succeeded !== 1 ? 's' : ''} ✓`);
+    }
+  });
 
   // ── Save to server ────────────────────────────────────────
   document.getElementById('save-to-server').addEventListener('click', async () => {
