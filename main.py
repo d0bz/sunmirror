@@ -20,7 +20,7 @@ def save_last_position(angles: dict):
     except Exception as e:
         print(f"[Position] Could not save last position: {e}")
 
-def load_last_position() -> dict | None:
+def load_last_position():
     """Load previously saved servo positions. Returns None if no file exists."""
     try:
         with open(LAST_POSITION_FILE) as f:
