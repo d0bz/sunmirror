@@ -2450,6 +2450,23 @@ const API_BASE = window.location.origin;
         <option value="2">Alternating Fan</option>
       </select>
     </div>
+    <div class="sched-field">
+      <label style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Speed</span>
+        <span id="sched-modal-speed-val" style="font-size:0.8rem;color:#818cf8;font-family:monospace;font-weight:700;">1.00x</span>
+      </label>
+      <input id="sched-modal-speed" type="range" min="0.01" max="1" step="0.01" value="1"
+        style="width:100%;accent-color:#6366f1;cursor:pointer;margin-top:4px;">
+      <div style="display:flex;justify-content:space-between;font-size:0.67rem;color:#475569;margin-top:2px;">
+        <span>🐢 0.01x (slowest)</span><span>⚡ 1.00x (full speed)</span>
+      </div>
+    </div>
+    <div class="sched-field" style="flex-direction:row;align-items:center;gap:10px;">
+      <input type="checkbox" id="sched-modal-once" style="width:16px;height:16px;accent-color:#6366f1;cursor:pointer;flex-shrink:0;">
+      <label for="sched-modal-once" style="cursor:pointer;margin:0;font-size:0.85rem;color:#cbd5e1;">
+        Play once &mdash; <span style="color:#94a3b8;font-size:0.78rem;">stop when animation finishes (don't loop)</span>
+      </label>
+    </div>
     <div class="sched-modal-actions">
       <button class="sched-btn danger" id="sched-modal-delete" style="display:none;">Delete</button>
       <button class="sched-btn" id="sched-modal-cancel">Cancel</button>
@@ -2707,13 +2724,15 @@ const API_BASE = window.location.origin;
       `;
 
       const dispName = slot.animation_name ?? slot.animation_file?.split('/').pop()?.replace('.json','') ?? 'Animation';
+      const speedLabel = slot.speed != null && slot.speed < 1.0 ? ` · ${slot.speed.toFixed(2)}x` : '';
+      const onceIcon = slot.play_once ? ' ▶1' : ' ↺';
       el.innerHTML = `
-        <span class="sched-slot-name">${dispName}</span>
-        <span class="sched-slot-time">${minsToTime(slot.start_minutes)}–${minsToTime(slot.end_minutes)}</span>
+        <span class="sched-slot-name">${dispName}${onceIcon}</span>
+        <span class="sched-slot-time">${minsToTime(slot.start_minutes)}–${minsToTime(slot.end_minutes)}${speedLabel}</span>
       `;
       el.addEventListener('click', e => {
         e.stopPropagation();
-        openModal(slot.id, slot.day, slot.start_minutes, slot.end_minutes, slot.animation_file);
+        openModal(slot.id, slot.day, slot.start_minutes, slot.end_minutes, slot.animation_file, slot.speed, slot.play_once);
       });
       tl.appendChild(el);
     });
@@ -2736,13 +2755,20 @@ const API_BASE = window.location.origin;
   }
 
   // ── modal ──────────────────────────────────────────────────
-  function openModal(slotId, day, startMins, endMins, animFile) {
+  function openModal(slotId, day, startMins, endMins, animFile, speed, playOnce) {
     editingSlotId = slotId;
     document.getElementById('sched-modal-title').textContent = slotId ? 'Edit Time Slot' : 'Add Time Slot';
     populateDaySelect(day ?? 0);
     document.getElementById('sched-modal-start').value = minsToTime(startMins ?? 600);
     document.getElementById('sched-modal-end').value   = minsToTime(endMins   ?? 720);
     document.getElementById('sched-modal-delete').style.display = slotId ? '' : 'none';
+    // Speed slider
+    const speedVal = speed ?? 1.0;
+    const speedSlider = document.getElementById('sched-modal-speed');
+    const speedDisplay = document.getElementById('sched-modal-speed-val');
+    speedSlider.value = speedVal;
+    speedDisplay.textContent = speedVal.toFixed(2) + 'x';
+    document.getElementById('sched-modal-once').checked = playOnce ?? false;
     document.getElementById('sched-modal-bg').classList.add('open');
     // Refresh animation picker from server so user-created animations appear
     fetch(API + '/animations')
@@ -2771,6 +2797,11 @@ const API_BASE = window.location.origin;
     if (e.target === document.getElementById('sched-modal-bg')) closeModal();
   });
 
+  // Update speed badge live while dragging the slider
+  document.getElementById('sched-modal-speed').addEventListener('input', function() {
+    document.getElementById('sched-modal-speed-val').textContent = parseFloat(this.value).toFixed(2) + 'x';
+  });
+
   document.getElementById('sched-modal-ok').addEventListener('click', () => {
     const day       = parseInt(document.getElementById('sched-modal-day').value);
     const startM    = timeToMins(document.getElementById('sched-modal-start').value);
@@ -2778,15 +2809,19 @@ const API_BASE = window.location.origin;
     const animSel   = document.getElementById('sched-modal-anim');
     const animFile  = animSel.value;                      // option value = file path
     const animName  = animSel.options[animSel.selectedIndex]?.text ?? animFile;
+    const speed     = parseFloat(document.getElementById('sched-modal-speed').value);
+    const playOnce  = document.getElementById('sched-modal-once').checked;
     if (endM <= startM) { alert('End time must be after start time.'); return; }
 
     if (editingSlotId) {
       const slot = schedule.slots.find(s => s.id === editingSlotId);
       if (slot) { slot.day = day; slot.start_minutes = startM; slot.end_minutes = endM;
-                  slot.animation_file = animFile; slot.animation_name = animName; }
+                  slot.animation_file = animFile; slot.animation_name = animName;
+                  slot.speed = speed; slot.play_once = playOnce; }
     } else {
       schedule.slots.push({ id: genId(), day, start_minutes: startM, end_minutes: endM,
-                            animation_file: animFile, animation_name: animName });
+                            animation_file: animFile, animation_name: animName,
+                            speed, play_once: playOnce });
     }
     closeModal();
     buildTimeline();
@@ -2800,7 +2835,7 @@ const API_BASE = window.location.origin;
   });
 
   // ── Add slot button ────────────────────────────────────────
-  document.getElementById('sched-add-btn').addEventListener('click', () => openModal(null, 0, 600, 720, 0));
+  document.getElementById('sched-add-btn').addEventListener('click', () => openModal(null, 0, 600, 720, null, 1.0));
 
   // ── Festival dates ─────────────────────────────────────────
   document.getElementById('sched-festival-start').addEventListener('change', e => {

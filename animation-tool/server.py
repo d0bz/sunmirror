@@ -1338,6 +1338,9 @@ def _schedule_tick():
             f"target_file={os.path.basename(anim_file)}"
         )
 
+        play_once = bool(slot.get('play_once', False))
+        loop      = not play_once   # loop unless play_once is set
+
         if not animation_running or current_animation_file != anim_file:
             # Need to start or switch
             if animation_running:
@@ -1346,17 +1349,21 @@ def _schedule_tick():
                     os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
                 except Exception as e:
                     _sched_log(f"  kill error: {e}")
-            _sched_log(f"Starting animation: {anim_file}")
-            process = play_animation_from_file(full_path=anim_file, loop=True)
+            _sched_log(f"Starting animation: {anim_file} (loop={loop}, play_once={play_once})")
+            process = play_animation_from_file(full_path=anim_file, loop=loop)
             if process:
                 animation_running = True
                 current_animation_file = anim_file
                 schedule_started_by_runner = True
-                msg = f"[Schedule] Started: {anim_name} (PID {process.pid})"
+                msg = f"[Schedule] Started: {anim_name} (PID {process.pid}, {'once' if play_once else 'loop'})"
                 print(msg)
                 _sched_log(msg)
             else:
                 _sched_log(f"ERROR: play_animation_from_file returned None for {anim_file}")
+        elif play_once and not proc_alive and schedule_started_by_runner:
+            # play_once animation finished naturally — don't restart, just wait for slot to end
+            _sched_log(f"play_once animation finished naturally, holding position until slot ends")
+            animation_running = False
         else:
             _sched_log(f"Correct animation already running ({anim_name}), no action needed")
     else:
