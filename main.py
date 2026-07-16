@@ -195,16 +195,18 @@ def load_and_play_animation(file_path, controller, all_mirrors, step_size=1.0):
                                 new_angles[all_mirrors[table_idx]] = angle
                         frame['angles'] = new_angles
         
-        # Load last known servo positions so we start from where we left off
-        start_angles = load_last_position()
-        if start_angles:
-            print("[Position] Starting from last saved position")
-        else:
-            print("[Position] No saved position — starting from 90° neutral")
+        # If we have a saved end-position from a previous animation, smoothly
+        # return to neutral (90°) first, then start the new animation from there.
+        saved_pos = load_last_position()
+        if saved_pos:
+            print("[Position] Returning to 90° neutral from last saved position...")
+            neutral = {name: 90.0 for name in saved_pos.keys()}
+            return_path = MovementGenerator._interpolate_frames(saved_pos, neutral, step_size)
+            controller.play_frame_path(return_path)
+            print("[Position] At neutral — starting animation")
 
-        # Convert animation frames to a path with the specified step size
-        path = MovementGenerator.generate_path_from_animation_frames(
-            animation_data, step_size, start_angles=start_angles)
+        # Generate animation path (always starts from 90° neutral)
+        path = MovementGenerator.generate_path_from_animation_frames(animation_data, step_size)
         print(f"Generated path with {len(path)} frames")
 
         # Read optional per-frame delay from animation metadata (first frame)
@@ -213,7 +215,7 @@ def load_and_play_animation(file_path, controller, all_mirrors, step_size=1.0):
         if frame_delay_ms:
             print(f"Animation requests {frame_delay_ms}ms delay per frame → total ~{len(path)*frame_delay_s/60:.1f} min")
 
-        # Play the path
+        # Play the animation
         print("Playing animation...")
         controller.play_frame_path(path, frame_delay_s=frame_delay_s)
         print("Animation playback complete")
