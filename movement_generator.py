@@ -310,112 +310,87 @@ class MovementGenerator:
         
         return path
     @staticmethod
-    def generate_path_from_animation_frames(frames_data, step_size=1.0):
+    def generate_path_from_animation_frames(frames_data, step_size=1.0, start_angles=None):
         """
         Convert animation tool JSON frames to a movement path with configurable step size.
-        
+
         Args:
-            frames_data: List of frame dictionaries from animation tool JSON
-                         Each frame has 'id' and 'angles' keys, where 'angles' maps table names to angle values
-            step_size: Size of each step in degrees (default: 1.0)
-            
+            frames_data:   List of frame dicts with 'id' and 'angles' keys.
+            step_size:     Degrees per interpolation step (default 1.0).
+            start_angles:  Dict of current servo positions to start from.
+                           If None (default) starts from 90° (original behaviour).
+
         Returns:
-            List of frames, where each frame is a dict mapping table names to angles
+            List of frames mapping table names to angles.
+            The path ends at the last animation frame — servos stay there.
         """
         if not frames_data or len(frames_data) < 1:
             return []
-            
+
         # Extract table names from the first frame
         first_frame = frames_data[0]
         if 'angles' not in first_frame:
             return []
-            
+
         table_names = list(first_frame['angles'].keys())
         if not table_names:
             return []
-            
+
+        # Starting position: use provided positions or fall back to 90°
+        if start_angles:
+            initial_frame = {table: start_angles.get(table, 90.0) for table in table_names}
+        else:
+            initial_frame = {table: 90.0 for table in table_names}
+
         # Initialize the path
         path = []
-        
-        # Create initial 90-degree frame
-        initial_frame = {table: 90.0 for table in table_names}
-        
-        if not frames_data:
-            # If no frames data, just return the initial frame
-            path.append(initial_frame)
-            return path
-            
+
         # Get the first frame from animation data
         first_animation_frame = frames_data[0]
         if 'angles' not in first_animation_frame:
-            # If first frame has no angles, just return the initial frame
             path.append(initial_frame)
             return path
-            
+
         # Create angles dict for first animation frame
-        first_angles = {}
-        for table in table_names:
-            if table in first_animation_frame['angles']:
-                first_angles[table] = first_animation_frame['angles'][table]
-            else:
-                first_angles[table] = 90.0  # Default to 90 if not specified
-        
-        # Interpolate from initial 90-degree frame to first animation frame
+        first_angles = {
+            table: first_animation_frame['angles'].get(table, 90.0)
+            for table in table_names
+        }
+
+        # Interpolate from starting position to first animation frame
         initial_to_first = MovementGenerator._interpolate_frames(
             initial_frame, first_angles, step_size)
         path.extend(initial_to_first)
-        
+
         # Process each pair of consecutive frames
         for i in range(len(frames_data) - 1):
             current_frame = frames_data[i]
             next_frame = frames_data[i + 1]
-            
-            # Skip if frames don't have angles
+
             if 'angles' not in current_frame or 'angles' not in next_frame:
                 continue
-                
+
             current_angles = {}
-            next_angles = {}
-            
-            # Create intermediate frames for each table
+            next_angles_dict = {}
+
             for table in table_names:
                 if table not in current_frame['angles'] or table not in next_frame['angles']:
                     continue
-                    
-                current_angles[table] = current_frame['angles'][table]
-                next_angles[table] = next_frame['angles'][table]
-                
-            # Add intermediate frames between current and next frame
-            # Skip the first frame as it's already included from the previous interpolation
+                current_angles[table]    = current_frame['angles'][table]
+                next_angles_dict[table] = next_frame['angles'][table]
+
             intermediate_frames = MovementGenerator._interpolate_frames(
-                current_angles, next_angles, step_size)
-            if i > 0:  # For all pairs except the first one
+                current_angles, next_angles_dict, step_size)
+            if i > 0:
                 path.extend(intermediate_frames)
-            else:  # For the first pair, skip the first frame as it's already in the path
+            else:  # skip first frame of first pair — already in path from initial_to_first
                 path.extend(intermediate_frames[1:])
-        
-        # Get the last frame from animation data
-        last_animation_frame = frames_data[-1]
-        if 'angles' in last_animation_frame:
-            # Create angles dict for last animation frame
-            last_angles = {}
-            for table in table_names:
-                if table in last_animation_frame['angles']:
-                    last_angles[table] = last_animation_frame['angles'][table]
-                else:
-                    last_angles[table] = 90.0  # Default to 90 if not specified
-            
-            # Create final 90-degree frame
-            final_frame = {table: 90.0 for table in table_names}
-            
-            # Interpolate from last animation frame to final 90-degree frame
-            last_to_final = MovementGenerator._interpolate_frames(
-                last_angles, final_frame, step_size)
-            # Skip the first frame as it's already included from the previous interpolation
-            path.extend(last_to_final[1:])
-        
+
+        # NOTE: No return-to-neutral. The animation ends at the last frame's positions.
+        # The caller is responsible for remembering where servos ended up.
+
         return path
-    
+
     @staticmethod
     def _interpolate_frames(start_angles, end_angles, step_size=1.0):
         """

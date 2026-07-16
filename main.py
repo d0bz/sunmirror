@@ -1,10 +1,37 @@
 # main.py
 import argparse
 import json
+import os
 import sys
 from servo_controller import MainController
 from movement_generator import MovementGenerator
 import time
+
+# File to persist servo positions between animations
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LAST_POSITION_FILE = os.path.join(_SCRIPT_DIR, 'animation-tool', 'last_position.json')
+
+def save_last_position(angles: dict):
+    """Persist the final servo angles to disk so the next animation can start from here."""
+    try:
+        with open(LAST_POSITION_FILE, 'w') as f:
+            json.dump(angles, f)
+        print(f"[Position] Saved last position ({len(angles)} servos)")
+    except Exception as e:
+        print(f"[Position] Could not save last position: {e}")
+
+def load_last_position() -> dict | None:
+    """Load previously saved servo positions. Returns None if no file exists."""
+    try:
+        with open(LAST_POSITION_FILE) as f:
+            pos = json.load(f)
+        print(f"[Position] Loaded last position from {LAST_POSITION_FILE}")
+        return pos
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print(f"[Position] Could not load last position: {e}")
+        return None
 
 # Mapping from servo number to ring position (1-based indexing)
 SERVO_TO_POSITION = {
@@ -168,8 +195,16 @@ def load_and_play_animation(file_path, controller, all_mirrors, step_size=1.0):
                                 new_angles[all_mirrors[table_idx]] = angle
                         frame['angles'] = new_angles
         
+        # Load last known servo positions so we start from where we left off
+        start_angles = load_last_position()
+        if start_angles:
+            print("[Position] Starting from last saved position")
+        else:
+            print("[Position] No saved position — starting from 90° neutral")
+
         # Convert animation frames to a path with the specified step size
-        path = MovementGenerator.generate_path_from_animation_frames(animation_data, step_size)
+        path = MovementGenerator.generate_path_from_animation_frames(
+            animation_data, step_size, start_angles=start_angles)
         print(f"Generated path with {len(path)} frames")
 
         # Read optional per-frame delay from animation metadata (first frame)
@@ -182,7 +217,11 @@ def load_and_play_animation(file_path, controller, all_mirrors, step_size=1.0):
         print("Playing animation...")
         controller.play_frame_path(path, frame_delay_s=frame_delay_s)
         print("Animation playback complete")
-        
+
+        # Save the final position so the next animation can start from here
+        if path:
+            save_last_position(path[-1])
+
         return True
     except FileNotFoundError:
         print(f"Error: File not found: {file_path}")
