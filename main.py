@@ -288,12 +288,9 @@ if __name__ == "__main__":
                         print("Error playing animation, exiting loop.")
                         sys.exit(1)
             else:
-                # Play once and exit
+                # Play once and exit — mirrors stay at their final position
                 success = load_and_play_animation(args.file, controller, all_mirrors, args.step_size)
                 if success:
-                    # Center all mirrors before exiting
-                    print("Centering all mirrors before exit...")
-                    controller.cleanup()
                     sys.exit(0)
                 else:
                     sys.exit(1)
