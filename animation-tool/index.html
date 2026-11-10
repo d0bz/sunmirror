@@ -2251,13 +2251,22 @@ const API_BASE = window.location.origin;
 }
 #sched-header h2 { margin: 0; font-size: 1.1rem; color: #f1f5f9; }
 #sched-server-clock {
-  display: flex; flex-direction: column; align-items: flex-end;
+  display: flex; align-items: center; gap: 10px;
   margin-left: auto;
   line-height: 1.2;
 }
+#sched-server-clock .clock-info {
+  display: flex; flex-direction: column; align-items: flex-end;
+}
+#sched-server-clock .clock-date {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  letter-spacing: 0.02em;
+}
 #sched-server-clock .clock-time {
   font-family: 'Courier New', monospace;
-  font-size: 1.45rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: #60a5fa;
   letter-spacing: 0.05em;
@@ -2269,6 +2278,12 @@ const API_BASE = window.location.origin;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+#sched-date-modal-bg {
+  display: none; position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);
+  align-items: center; justify-content: center;
+}
+#sched-date-modal-bg.open { display: flex; }
 .sched-ctrl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sched-btn {
   padding: 6px 16px; border-radius: 6px; border: 1px solid #334155;
@@ -2414,14 +2429,42 @@ const API_BASE = window.location.origin;
     <button class="sched-btn danger" id="sched-clear-btn" title="Delete all slots and reset dates">🗑 Clear All</button>
   </div>
   <div id="sched-server-clock">
-    <span class="clock-time" id="sched-clock-time">--:--:--</span>
-    <span class="clock-label">Mirror server time</span>
+    <div class="clock-info">
+      <span class="clock-date" id="sched-clock-date">----&#8209;--&#8209;--</span>
+      <span class="clock-time" id="sched-clock-time">--:--:--</span>
+      <span class="clock-label">Mirror server date &amp; time</span>
+    </div>
+    <button class="sched-btn" id="sched-set-date-btn" title="Manually set current server date and time">📅 Set Date</button>
   </div>
 </div>
 
 <!-- Timeline -->
 <div id="sched-timeline-wrap">
   <div id="sched-timeline"><!-- populated by JS --></div>
+</div>
+
+<!-- Set Current Date/Time modal -->
+<div id="sched-date-modal-bg">
+  <div id="sched-modal">
+    <h3>📅 Set Current Server Date &amp; Time</h3>
+    <div class="sched-field">
+      <label>Current Date</label>
+      <input id="sched-set-date-input" type="date">
+    </div>
+    <div class="sched-field">
+      <label>Current Time</label>
+      <input id="sched-set-time-input" type="time" step="1">
+    </div>
+    <div class="sched-field" style="margin-top:6px;">
+      <button type="button" class="sched-btn" id="sched-sync-device-btn" style="width:100%;text-align:center;border-color:#2563eb;color:#93c5fd;">
+        ⚡ Use My Device's Current Date &amp; Time
+      </button>
+    </div>
+    <div class="sched-modal-actions">
+      <button class="sched-btn" id="sched-date-modal-cancel">Cancel</button>
+      <button class="sched-btn primary" id="sched-date-modal-ok">Set Date &amp; Time</button>
+    </div>
+  </div>
 </div>
 
 <!-- Slot modal -->
@@ -2560,24 +2603,58 @@ const API_BASE = window.location.origin;
   let _clockInterval = null;
 
   // ── Server clock ───────────────────────────────────────────
+  function getServerNow() {
+    if (!_clockBase) return new Date();
+    return new Date(_clockBase.serverMs + (Date.now() - _clockBase.clientMs));
+  }
+  function formatIsoDate(d) {
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2, '0');
+    const dd   = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  function recomputeTodayDayIndex() {
+    if (!schedule.festival_start || !_clockBase) {
+      todayDayIndex = null;
+      return;
+    }
+    const now = getServerNow();
+    const todayMidnight = new Date(formatIsoDate(now) + 'T00:00:00');
+    const festStart     = new Date(schedule.festival_start + 'T00:00:00');
+    todayDayIndex = Math.round((todayMidnight - festStart) / 86400000);
+  }
   function seedClock(serverTimeStr) {
     // serverTimeStr = "YYYY-MM-DDTHH:MM:SS" (server local time, no tz)
     if (!serverTimeStr) return;
     const serverMs = new Date(serverTimeStr).getTime();
-    _clockBase = { serverMs, clientMs: Date.now() };
+    _clockBase = { serverMs, clientMs: Date.now(), lastIsoDate: null };
     if (_clockInterval) clearInterval(_clockInterval);
     _clockInterval = setInterval(tickClock, 1000);
     tickClock();
   }
   function tickClock() {
     if (!_clockBase) return;
-    const elapsed = Date.now() - _clockBase.clientMs;
-    const now = new Date(_clockBase.serverMs + elapsed);
+    const now = getServerNow();
     const hh = String(now.getHours()).padStart(2,'0');
     const mm = String(now.getMinutes()).padStart(2,'0');
     const ss = String(now.getSeconds()).padStart(2,'0');
     const el = document.getElementById('sched-clock-time');
     if (el) el.textContent = `${hh}:${mm}:${ss}`;
+
+    const isoDate = formatIsoDate(now);
+    const dateEl = document.getElementById('sched-clock-date');
+    if (dateEl) {
+      const pretty = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+      dateEl.textContent = `${pretty} (${isoDate})`;
+    }
+    if (_clockBase.lastIsoDate && _clockBase.lastIsoDate !== isoDate) {
+      _clockBase.lastIsoDate = isoDate;
+      recomputeTodayDayIndex();
+      buildTimeline();
+    } else {
+      _clockBase.lastIsoDate = isoDate;
+    }
+
     // Keep the NOW marker in sync — update whenever the minute changes
     const live = now.getHours() * 60 + now.getMinutes();
     if (live !== nowMinutes) {
@@ -2837,6 +2914,66 @@ const API_BASE = window.location.origin;
   // ── Add slot button ────────────────────────────────────────
   document.getElementById('sched-add-btn').addEventListener('click', () => openModal(null, 0, 600, 720, null, 1.0));
 
+  // ── Set Current Date/Time Modal ────────────────────────────
+  function openDateModal() {
+    const now = getServerNow();
+    document.getElementById('sched-set-date-input').value = formatIsoDate(now);
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    document.getElementById('sched-set-time-input').value = `${hh}:${mm}:${ss}`;
+    document.getElementById('sched-date-modal-bg').classList.add('open');
+  }
+  function closeDateModal() {
+    document.getElementById('sched-date-modal-bg').classList.remove('open');
+  }
+  document.getElementById('sched-set-date-btn').addEventListener('click', openDateModal);
+  document.getElementById('sched-date-modal-cancel').addEventListener('click', closeDateModal);
+  document.getElementById('sched-date-modal-bg').addEventListener('click', e => {
+    if (e.target === document.getElementById('sched-date-modal-bg')) closeDateModal();
+  });
+  document.getElementById('sched-sync-device-btn').addEventListener('click', () => {
+    const dev = new Date();
+    document.getElementById('sched-set-date-input').value = formatIsoDate(dev);
+    const hh = String(dev.getHours()).padStart(2, '0');
+    const mm = String(dev.getMinutes()).padStart(2, '0');
+    const ss = String(dev.getSeconds()).padStart(2, '0');
+    document.getElementById('sched-set-time-input').value = `${hh}:${mm}:${ss}`;
+  });
+  document.getElementById('sched-date-modal-ok').addEventListener('click', async () => {
+    const dateVal = document.getElementById('sched-set-date-input').value;
+    const timeVal = document.getElementById('sched-set-time-input').value || '00:00:00';
+    if (!dateVal) {
+      alert('Please select a date.');
+      return;
+    }
+    try {
+      const r = await fetch(API + '/schedule/time', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ date: dateVal, time: timeVal, datetime: `${dateVal}T${timeVal}` })
+      });
+      if (r.ok) {
+        const d = await r.json();
+        _autoTimeSyncDone = true;
+        todayDayIndex = d.today_day_index;
+        nowMinutes    = d.now_minutes ?? 0;
+        schedule.active_slot_id = d.active_slot_id;
+        seedClock(d.server_time);
+        recomputeTodayDayIndex();
+        buildTimeline();
+        scrollToNow();
+        closeDateModal();
+        showToast(`Current date & time set to ${dateVal} ${timeVal.slice(0,5)} ✓`);
+      } else {
+        const err = await r.json().catch(() => ({}));
+        alert('Failed to set date: ' + (err.message || r.status));
+      }
+    } catch (e) {
+      alert('Server unreachable: ' + e.message);
+    }
+  });
+
   // ── Festival dates ─────────────────────────────────────────
   document.getElementById('sched-festival-start').addEventListener('change', e => {
     schedule.festival_start = e.target.value || null;
@@ -2847,10 +2984,12 @@ const API_BASE = window.location.origin;
       schedule.festival_end = e.target.value;
     }
     if (!schedule.festival_end) schedule.festival_end = e.target.value;
+    recomputeTodayDayIndex();
     buildTimeline();
   });
   document.getElementById('sched-festival-end').addEventListener('change', e => {
     schedule.festival_end = e.target.value || null;
+    recomputeTodayDayIndex();
     buildTimeline();
   });
 
@@ -2922,12 +3061,67 @@ const API_BASE = window.location.origin;
     } catch(e) { alert('Server unreachable: ' + e.message); }
   });
 
+  // ── Auto-sync Raspberry Pi time with device time on web open ──
+  let _autoTimeSyncDone = false;
+  const AUTO_SYNC_THRESHOLD_MS = 5000; // 5 seconds
+
+  async function autoSyncDeviceTimeIfNeeded(serverTimeStr) {
+    if (_autoTimeSyncDone || !serverTimeStr) return null;
+
+    const serverMs = new Date(serverTimeStr).getTime();
+    const dev = new Date();
+    const deviceMs = dev.getTime();
+    if (isNaN(serverMs)) return null;
+
+    if (Math.abs(deviceMs - serverMs) <= AUTO_SYNC_THRESHOLD_MS) {
+      _autoTimeSyncDone = true;
+      return null;
+    }
+
+    const dateVal = formatIsoDate(dev);
+    const hh = String(dev.getHours()).padStart(2, '0');
+    const mm = String(dev.getMinutes()).padStart(2, '0');
+    const ss = String(dev.getSeconds()).padStart(2, '0');
+    const timeVal = `${hh}:${mm}:${ss}`;
+
+    try {
+      const r = await fetch(API + '/schedule/time', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          date: dateVal,
+          time: timeVal,
+          datetime: `${dateVal}T${timeVal}`,
+          auto: true
+        })
+      });
+      if (r.ok) {
+        _autoTimeSyncDone = true;
+        const synced = await r.json();
+        showToast(`⏱ Raspberry time synced to device (${dateVal} ${timeVal.slice(0,5)}) ✓`);
+        return synced;
+      }
+    } catch (e) {
+      console.warn('[Schedule] Auto time sync failed:', e.message);
+    }
+    return null;
+  }
+
   // ── Load from server ──────────────────────────────────────
   async function loadSchedule() {
     try {
       const r = await fetch(API + '/schedule');
       if (!r.ok) return;
       const d = await r.json();
+
+      const synced = await autoSyncDeviceTimeIfNeeded(d.server_time);
+      if (synced) {
+        d.server_time     = synced.server_time;
+        d.now_minutes     = synced.now_minutes;
+        d.today_day_index = synced.today_day_index;
+        d.active_slot_id  = synced.active_slot_id;
+      }
+
       schedule.festival_start = d.festival_start;
       schedule.festival_end   = d.festival_end;
       schedule.slots          = d.slots ?? [];
@@ -2997,11 +3191,8 @@ const API_BASE = window.location.origin;
     });
   });
 
-  // Load schedule data whenever the page loads into this tab
-  // (will be triggered by tab click, but also pre-warm on view show)
-  if (document.getElementById('view-schedule').style.display !== 'none') {
-    loadSchedule();
-  }
+  // Always load schedule on web open so Raspberry Pi time is checked and synced to device time immediately
+  loadSchedule();
 })();
 </script>
 

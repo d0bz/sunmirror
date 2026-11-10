@@ -98,11 +98,16 @@ DEFAULT_LOOP_ANIMATION = ANIMATION_PRESETS[0]["file"]  # fallback / startup
 SCHEDULE_FILE = os.path.join(_SERVER_DIR, 'schedule.json')
 SCHEDULE_LOG  = os.path.join(_SERVER_DIR, 'logs', 'schedule.log')
 
+def _now() -> dt.datetime:
+    """Return current server datetime, applying any manual date/time offset."""
+    offset = float(schedule_data.get('time_offset_seconds') or 0.0)
+    return dt.datetime.now() + dt.timedelta(seconds=offset)
+
 def _sched_log(msg: str):
     """Append a timestamped line to logs/schedule.log, keeping last 500 lines."""
     try:
         os.makedirs(os.path.dirname(SCHEDULE_LOG), exist_ok=True)
-        line = f"[{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n"
+        line = f"[{_now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n"
         # Append
         with open(SCHEDULE_LOG, 'a') as f:
             f.write(line)
@@ -119,10 +124,12 @@ schedule_data = {
     "festival_start": None,   # ISO date string "YYYY-MM-DD"
     "festival_end":   None,   # ISO date string "YYYY-MM-DD"
     "enabled": False,
-    "slots": []               # list of {id, day(0-N), start_minutes, end_minutes, animation_file}
+    "slots": [],              # list of {id, day(0-N), start_minutes, end_minutes, animation_file}
+    "time_offset_seconds": 0.0,
 }
 schedule_enabled = False          # master on/off
 schedule_started_by_runner = False  # True when runner owns the current process
+_completed_once_slot_id = None      # Tracks a play_once slot that already finished naturally
 
 # ---------------------------------------------------------------------------
 # Animation library
@@ -179,8 +186,12 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 post_data = json.loads(post_data_str)
                 
                 # Extract animation frames and loop parameter
-                animation_data = post_data.get('frames', post_data)
-                loop = post_data.get('loop', False)
+                if isinstance(post_data, dict) and 'file' in post_data and 'frames' not in post_data:
+                    with open(post_data['file'], 'r') as _af:
+                        animation_data = json.load(_af)
+                else:
+                    animation_data = post_data.get('frames', post_data) if isinstance(post_data, dict) else post_data
+                loop = post_data.get('loop', False) if isinstance(post_data, dict) else False
                 
                 # Create a temporary file to store the animation data
                 temp_fd, temp_filename = tempfile.mkstemp(suffix='.json')
@@ -577,6 +588,94 @@ class AnimationServer(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(err)
 
+        # POST /schedule/time – manually or automatically set current server date/time
+        elif self.path == '/schedule/time':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(content_length).decode('utf-8')) if content_length > 0 else {}
+                dt_str   = body.get('datetime')
+                date_str = body.get('date')
+                time_str = body.get('time')
+                is_auto  = bool(body.get('auto', False))
+
+                current = _now()
+                if dt_str:
+                    target_dt = dt.datetime.fromisoformat(dt_str)
+                elif date_str:
+                    target_date = dt.date.fromisoformat(date_str)
+                    if time_str:
+                        parts = [int(p) for p in time_str.split(':')]
+                        target_time = dt.time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
+                    else:
+                        target_time = current.time().replace(microsecond=0)
+                    target_dt = dt.datetime.combine(target_date, target_time)
+                else:
+                    raise ValueError("Request must include 'date' or 'datetime'")
+
+                # 1. Attempt to set system clock on Raspberry Pi
+                sys_clock_updated = False
+                if not SIMULATION_MODE:
+                    try:
+                        cmd_prefix = [] if (hasattr(os, 'geteuid') and os.geteuid() == 0) else ['sudo', '-n']
+                        res = subprocess.run(
+                            cmd_prefix + ['date', '-s', target_dt.strftime('%Y-%m-%d %H:%M:%S')],
+                            capture_output=True, text=True, timeout=3
+                        )
+                        if res.returncode == 0:
+                            sys_clock_updated = True
+                            subprocess.run(
+                                cmd_prefix + ['fake-hwclock', 'save'],
+                                capture_output=True, timeout=3
+                            )
+                    except Exception as clk_err:
+                        print(f"[Schedule] Could not update system clock via date: {clk_err}")
+
+                # 2. Store residual offset so _now() matches target_dt even without root/RTC
+                offset_sec = (target_dt - dt.datetime.now()).total_seconds()
+                if sys_clock_updated and abs(offset_sec) < 2.0:
+                    offset_sec = 0.0
+                schedule_data['time_offset_seconds'] = round(offset_sec, 3)
+                _save_schedule()
+
+                now = _now()
+                action_label = "Auto-synced date/time from device" if is_auto else "Manually set date/time"
+                log_msg = (
+                    f"[Clock] {action_label} to {now.strftime('%Y-%m-%d %H:%M:%S')} "
+                    f"(sys_clock_updated={sys_clock_updated}, offset_s={schedule_data['time_offset_seconds']})"
+                )
+                print(log_msg)
+                _sched_log(log_msg)
+                threading.Thread(target=_schedule_tick, daemon=True).start()
+
+                active = _get_active_slot()
+                resp = json.dumps({
+                    'status': 'ok',
+                    'server_time': now.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'now_minutes': now.hour * 60 + now.minute,
+                    'today_day_index': (
+                        (now.date() - dt.date.fromisoformat(schedule_data['festival_start'])).days
+                        if schedule_data.get('festival_start') else None
+                    ),
+                    'active_slot_id': active['id'] if active else None,
+                    'sys_clock_updated': sys_clock_updated,
+                    'time_offset_seconds': schedule_data['time_offset_seconds'],
+                }).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                traceback.print_exc()
+                err = json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8')
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Content-Length', str(len(err)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(err)
+
         # POST /schedule/enable  and  /schedule/disable
         elif self.path in ('/schedule/enable', '/schedule/disable'):
             try:
@@ -769,8 +868,10 @@ class AnimationServer(SimpleHTTPRequestHandler):
         """Handle GET requests - serve static files or handle API endpoints"""
         global current_process, animation_running, current_animation_file, current_animation_index
 
-        # Strip query string first so all route checks work regardless of cache-busting params
-        self.path = self.path.split('?')[0]
+        # Preserve query string before stripping path for route matching
+        raw_path = self.path
+        query_string = raw_path.split('?', 1)[1] if '?' in raw_path else ''
+        self.path = raw_path.split('?')[0]
 
         # /api redirect
         if self.path in ('/api', '/api/'):
@@ -869,7 +970,7 @@ class AnimationServer(SimpleHTTPRequestHandler):
 
         # GET /schedule – return full schedule + active slot
         if self.path == '/schedule':
-            now = dt.datetime.now()
+            now = _now()
             active = _get_active_slot()
             payload = {
                 **schedule_data,
@@ -897,9 +998,8 @@ class AnimationServer(SimpleHTTPRequestHandler):
             try:
                 # Allow ?lines=N
                 n_lines = 100
-                if '?' in self.path:
-                    qs = self.path.split('?', 1)[1]
-                    for part in qs.split('&'):
+                if query_string:
+                    for part in query_string.split('&'):
                         if part.startswith('lines='):
                             try:
                                 n_lines = int(part.split('=', 1)[1])
@@ -1257,7 +1357,7 @@ def _get_active_slot():
     except Exception:
         max_day_index = 3  # default: 4-day window
 
-    now = dt.datetime.now()
+    now = _now()
     today = now.date()
     day_index = (today - festival_start).days  # 0-based
     now_minutes = now.hour * 60 + now.minute
@@ -1296,7 +1396,7 @@ def _get_active_slot():
 def _schedule_tick():
     """Check the schedule and start/stop animation accordingly."""
     global animation_running, current_animation_file, current_animation_index
-    global schedule_started_by_runner, current_process
+    global schedule_started_by_runner, current_process, _completed_once_slot_id
 
     proc_alive = (current_process is not None and current_process.poll() is None)
     _sched_log(
@@ -1306,17 +1406,28 @@ def _schedule_tick():
         f"current_file={os.path.basename(current_animation_file) if current_animation_file else 'None'}"
     )
 
-    # Self-heal: if the process has exited externally, clear the stale flag
-    if animation_running and not proc_alive:
-        msg = "[Schedule] Process exited externally — resetting animation_running"
-        print(msg)
-        _sched_log(msg)
-        animation_running = False
-        if schedule_started_by_runner:
-            current_animation_file = None
-            schedule_started_by_runner = False
-
     slot = _get_active_slot()
+    slot_id = slot.get('id') if slot else None
+    if _completed_once_slot_id is not None and slot_id != _completed_once_slot_id:
+        _completed_once_slot_id = None
+
+    # Self-heal: if the process has exited, handle play_once completion vs unexpected exit
+    if animation_running and not proc_alive:
+        if slot and slot.get('play_once') and schedule_started_by_runner:
+            msg = "[Schedule] play_once animation finished naturally — holding position until slot ends"
+            print(msg)
+            _sched_log(msg)
+            animation_running = False
+            _completed_once_slot_id = slot_id
+        else:
+            msg = "[Schedule] Process exited externally — resetting animation_running"
+            print(msg)
+            _sched_log(msg)
+            animation_running = False
+            if schedule_started_by_runner:
+                current_animation_file = None
+                schedule_started_by_runner = False
+
     if slot:
         # Resolve which file to play — prefer animation_file, fall back to index
         anim_file = slot.get('animation_file')
@@ -1341,7 +1452,9 @@ def _schedule_tick():
         play_once = bool(slot.get('play_once', False))
         loop      = not play_once   # loop unless play_once is set
 
-        if not animation_running or current_animation_file != anim_file:
+        if play_once and _completed_once_slot_id == slot_id:
+            _sched_log(f"play_once slot ({anim_name}) already completed, holding position until slot ends")
+        elif not animation_running or current_animation_file != anim_file:
             # Need to start or switch
             if animation_running:
                 _sched_log(f"Stopping current animation to switch to: {anim_name}")
@@ -1360,24 +1473,22 @@ def _schedule_tick():
                 _sched_log(msg)
             else:
                 _sched_log(f"ERROR: play_animation_from_file returned None for {anim_file}")
-        elif play_once and not proc_alive and schedule_started_by_runner:
-            # play_once animation finished naturally — don't restart, just wait for slot to end
-            _sched_log(f"play_once animation finished naturally, holding position until slot ends")
-            animation_running = False
         else:
             _sched_log(f"Correct animation already running ({anim_name}), no action needed")
     else:
         _sched_log("No active slot right now")
         # No active slot → stop only if we started it
-        if animation_running and schedule_started_by_runner:
-            _sched_log("Stopping animation (end of slot)")
-            try:
-                os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
-            except Exception as e:
-                _sched_log(f"  kill error: {e}")
+        if (animation_running or current_animation_file is not None) and schedule_started_by_runner:
+            if animation_running and current_process and current_process.poll() is None:
+                _sched_log("Stopping animation (end of slot)")
+                try:
+                    os.killpg(os.getpgid(current_process.pid), signal.SIGINT)
+                except Exception as e:
+                    _sched_log(f"  kill error: {e}")
             animation_running = False
             current_animation_file = None
             schedule_started_by_runner = False
+            _completed_once_slot_id = None
             msg = "[Schedule] Stopped (end of slot)"
             print(msg)
             _sched_log(msg)
